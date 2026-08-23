@@ -957,6 +957,16 @@ proc replayMatch*(config: GameConfig, events: seq[GameEvent]): seq[Sim] =
   ## initSim already logged the start and the first round event; the recorded
   ## log opens with those same two.
   sim.events = @[]
+  ## The ending reason is a wall-clock signal (the play deadline), not
+  ## something the rules re-derive; the log carries it in the `end` event's
+  ## text. Seed it before replaying, otherwise a deadline that trips at or
+  ## after the ballot opens re-derives as "complete": `beginDeadlineBallot`
+  ## only fires while the phase is still `phArgument`, and `settle` defaults
+  ## an empty reason. `reason` is rendered only once the sim is done
+  ## (`tableStateJson`, `playerStateJson`), so no earlier frame changes.
+  for event in events:
+    if event.kind == evEnd and event.text.len > 0:
+      sim.reason = event.text
   result.add(sim)
   for event in events:
     case event.kind

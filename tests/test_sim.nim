@@ -403,6 +403,27 @@ suite "replay":
     expect TribunalError:
       discard replayMatch(config, events)
 
+  test "a deadline at the ballot re-derives as a deadline, not as complete":
+    ## The likeliest deadline shape: the play budget runs out during the
+    ## closing round, so the phase is already `phBallot` when the deadline is
+    ## detected at the top of the ballot turn. Nothing in the vote events
+    ## distinguishes it from a normal ballot — the `end` event's reason is
+    ## what the replay has to carry.
+    let config = fixtureConfig(rounds = 2, seed = 21)
+    var live = playToBallot(config)
+    check live.phase == phBallot
+    live.applyVote(live.jurorSeat[0], "guilty", "sure of it", "", true)
+    live.forceBallot()
+    check live.reason == "deadline"
+    let frames = replayMatch(config, live.events)
+    check frames.len == live.events.len + 1
+    check frames[^1].done
+    check frames[^1].reason == "deadline"
+    check frames[^1].events[^1].kind == evEnd
+    check frames[^1].events[^1].text == "deadline"
+    check $frames[^1].tableStateJson() == $live.tableStateJson()
+    check frames[^1].resultsJson()["reason"].getStr() == "deadline"
+
   test "every event kind round-trips through JSON":
     let config = fixtureConfig(rounds = 2, seed = 17)
     var sim = playToBallot(config)
