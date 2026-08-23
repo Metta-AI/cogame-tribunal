@@ -300,7 +300,11 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
           if not decisionOf.hasKey(seat):
             continue
           let decision = decisionOf[seat]
-          let wasScripted = scripted[seat] != skNone or client.disabled
+          ## `decision.scripted` also catches a seat that was LLM-driven and
+          ## fell back after its retry — the config-derived flags cannot see
+          ## that, and the replay would call the fallback an LLM decision.
+          let wasScripted = decision.scripted or
+            scripted[seat] != skNone or client.disabled
           echo "tribunal: ", state.sim.names[seat], " (",
             state.sim.roleName(seat), ") ",
             describe(state.sim, seat, decision), " at ",

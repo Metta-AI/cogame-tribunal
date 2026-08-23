@@ -126,6 +126,11 @@ suite "scripted baselines":
       check decisions[index].introduce == expected[index].introduce
       check decisions[index].argument == expected[index].argument
       check decisions[index].lean == expected[index].lean
+      ## A scripted decision says so, whether the seat was configured
+      ## scripted or fell back — the server stamps the event from this, so
+      ## the replay never calls a fallback an LLM decision.
+      check decisions[index].scripted
+    check not parseAdvocateReply(%*{"argument": "my own words"}).scripted
     for index, seat in seats:
       sim.applyDecision(seat, decisions[index], true)
     check sim.round == 1

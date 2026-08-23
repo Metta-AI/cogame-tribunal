@@ -52,6 +52,7 @@ type
     vote*: string            ## juror, ballot
     reason*: string          ## juror, ballot
     notes*: string           ## "" when the reply carried none
+    scripted*: bool          ## came from a scripted baseline, LLM reply or not
 
   LlmTransport = enum
     ltNone, ltBedrock, ltAnthropic
@@ -222,6 +223,9 @@ proc scriptedAction*(sim: Sim, seat: int, kind: ScriptKind): Decision =
   ## fieldable policies in their own right.
   let script = if kind == skNone: skTally else: kind
   let role = sim.roleOf[seat]
+  ## Stamped on the decision itself so the caller can record the provenance
+  ## of a decision it did not ask for — an LLM seat that fell back.
+  result.scripted = true
   if role == 2:
     let call = if script == skHedge: hedgeVote(sim) else: sim.tallyVote()
     if sim.phase == phBallot:
