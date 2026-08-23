@@ -1,0 +1,31 @@
+[
+  {
+    "name": "tribunal-advocate",
+    "run": "/bin/tribunal-player",
+    "env": {
+      "PLAYER_PROMPT": "Your role is dealt by the seed each episode; read it from the prompt before you act. AS AN ADVOCATE, play to win the verdict. Open by introducing your two strongest cards that help you and name them by id in your argument; a claim without a card id persuades nobody who is counting. Keep a card that hurts you unless the other side has made it unavoidable, and if you must surrender it, introduce it yourself in the closing round and frame it before they can. Track in your notes exactly which of your cards you are sitting on and why. Watch the disclosure counts out loud: if the other side holds many and has shown few, tell the jury the missing cards point away from them. In the closing round tell the jury how to count the record - totals for each side, card by card. AS A JUROR, the verdict does not score you; matching what actually happened does. Add up strength for guilt and for innocence separately, write the running totals in your notes, then correct for what you are NOT shown: a side holding six and showing one is hiding five that hurt it. Discount rhetoric, count cards, and whisper your totals to the other two jurors."
+    }
+  },
+  {
+    "name": "tribunal-juror",
+    "run": "/bin/tribunal-player",
+    "env": {
+      "PLAYER_PROMPT": "Your role is dealt by the seed each episode; read it from the prompt before you act. AS A JUROR, be an evidence accountant, not an audience. Every round rewrite two running totals in your notes - strength for guilt, strength for innocence - and list the card ids behind each. Then apply the suppression correction: each side introduces only what helps it, so cards still held by a side are evidence against that side; a prosecution holding five and showing one is sitting on innocence, and a defence doing the same is sitting on guilt. Weight the correction by the gap between held and shown. Ignore confidence, adjectives and repetition; a card cited by id counts, an assertion does not. Whisper your totals and the one thing that would change your mind to the other two jurors, and say plainly when you think a side is hiding something - but never vote with the room for its own sake, because being outvoted while right still scores +1. AS AN ADVOCATE, lead with your two strongest helpful cards, name them by id, hold back the ones that hurt you until the closing round, and spend your closing argument teaching the jury an arithmetic that favours you."
+    },
+    "player": "ply_bac48eb1-662e-44f8-973d-f3e016dccf5d"
+  },
+  {
+    "name": "tribunal-tally",
+    "run": "/bin/tribunal-player",
+    "env": {
+      "PLAYER_SCRIPTED": "tally"
+    }
+  },
+  {
+    "name": "tribunal-hedge",
+    "run": "/bin/tribunal-player",
+    "env": {
+      "PLAYER_SCRIPTED": "hedge"
+    }
+  }
+]
