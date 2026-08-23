@@ -1,0 +1,7 @@
+services:
+  tribunal:
+    image: coworld-tribunal:latest
+    platform: linux/amd64
+    build:
+      context: .
+      network: host
