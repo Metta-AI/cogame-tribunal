@@ -1,0 +1,427 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Metta-AI/coworld/main/src/coworld/coworld_manifest_schema.json",
+  "tags": [
+    "adjudication",
+    "persuasion",
+    "hidden-information",
+    "mixed-motive",
+    "llm-driven",
+    "turn-based",
+    "five-player",
+    "social-deduction"
+  ],
+  "game": {
+    "name": "tribunal",
+    "replay_viewer": {
+      "bundle": "static-replay-viewer"
+    },
+    "description": "Tribunal: an adjudication coworld for five LLM-piloted cogs. A prosecutor, a defender and a jury of three argue one criminal case. The server generates the scenario from the seed - four suspects, a hidden culprit, a coin-flip truth about whether the accused did it, and twelve evidence cards whose strengths are drawn so the whole deck points at the truth by a margin of only 1 to 4 - then deals the cards unevenly (7/5 or 5/7) and BLIND to polarity, so an advocate routinely holds cards that hurt it. Each argument round both advocates may introduce up to 2 of their own cards and make one argument; only introduced cards ever reach the jury, and the jury is told how many cards each side holds and how many it has shown, so suppression is inferable but never visible. Jurors whisper to each other, record a lean, and after the closing round cast ONE SEALED VOTE - invisible to every other seat until the verdict. Advocates score on the verdict alone ((2 x own votes - 3) / 3, so +1.0 for 3-0 down to -1.0 for 0-3, always summing to zero); jurors score +1.0 for matching the hidden truth and -1.0 for missing it. Nobody, including the advocates, knows the truth: adversarial persuasion against truth-tracking is the whole benchmark. Roles are a seeded permutation, so no policy can choose to be an advocate or a juror. The game is LLM-driven and A POLICY IS JUST A PROMPT - field one by reusing the published player runnable with PLAYER_PROMPT set to your strategy. Two scripted baselines (tally, which weighs the record's strengths, and hedge, which counts its cards and holds evidence back) play any seat that registers as scripted, and every seat when no LLM credentials are available, so episodes always complete.",
+    "owner": "daveey@gmail.com",
+    "runnable": {
+      "type": "game",
+      "image": "{{TRIBUNAL_IMAGE}}",
+      "run": [
+        "/bin/tribunal"
+      ],
+      "env": {
+        "ANTHROPIC_API_KEY_URI": "secret://coworld/tribunal/anthropic_api_key"
+      },
+      "source_url": "https://github.com/Metta-AI/cogame-tribunal/tree/main"
+    },
+    "config_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tokens",
+        "players"
+      ],
+      "properties": {
+        "tokens": {
+          "description": "One connection token per player slot, indexed by slot.",
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "players": {
+          "description": "One player display-name object per seat, indexed by slot.",
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "num_agents": {
+          "description": "Seat count; injected by the commissioner. Tribunal is a five-player game: two advocates and a jury of three.",
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 5
+        },
+        "seed": {
+          "description": "Pins the seat-to-role permutation, the suspects, the culprit, the hidden truth, the deck and the deal. Omit for a fresh random seed per episode.",
+          "type": "integer"
+        },
+        "rounds": {
+          "description": "Argument rounds before the sealed ballot.",
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 5,
+          "default": 4
+        },
+        "episodeTimeoutSeconds": {
+          "description": "Wall-clock the game assumes the platform allows an episode when COWORLD_TIMEOUT_SECONDS is not in its environment; past 60% of it the bench calls the ballot early so results and the replay always land.",
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 6000,
+          "default": 1200
+        },
+        "turnDelayMs": {
+          "description": "Spectator pacing delay between turns.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000,
+          "default": 400
+        },
+        "model": {
+          "description": "Claude model that drives every seat.",
+          "type": "string",
+          "default": "claude-sonnet-5"
+        },
+        "maxOutputTokens": {
+          "type": "integer",
+          "minimum": 64,
+          "maximum": 2000,
+          "default": 900
+        },
+        "llmTimeoutSeconds": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 300,
+          "default": 45
+        },
+        "player_connect_timeout_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "default": 180
+        }
+      }
+    },
+    "results_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "names",
+        "scores",
+        "roles",
+        "votes",
+        "verdict",
+        "truth",
+        "correctJurors",
+        "rounds",
+        "maxRounds",
+        "cardsIntroduced",
+        "cardsHeld",
+        "reason"
+      ],
+      "properties": {
+        "names": {
+          "description": "Policy display names, indexed by slot. Seats play under anonymous cog aliases in-game; results attribute by policy name.",
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": {
+            "type": "string"
+          }
+        },
+        "scores": {
+          "description": "Advocates: (2 x own votes - 3) / 3, the two always summing to zero. Jurors: +1 for matching the hidden truth, -1 for missing it.",
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": {
+            "type": "number",
+            "minimum": -1,
+            "maximum": 1
+          }
+        },
+        "roles": {
+          "description": "The role each seat was dealt: Prosecutor, Defender or Juror.",
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": {
+            "type": "string"
+          }
+        },
+        "votes": {
+          "description": "Each juror's sealed vote, revealed with the verdict; empty for the advocate seats.",
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": {
+            "type": "string"
+          }
+        },
+        "verdict": {
+          "description": "guilty when two or more jurors voted guilty, else not_guilty.",
+          "type": "string"
+        },
+        "truth": {
+          "description": "What actually happened: guilty when the accused was the culprit, else not_guilty.",
+          "type": "string"
+        },
+        "correctJurors": {
+          "description": "How many of the three jurors matched the truth.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "rounds": {
+          "description": "Argument rounds actually played.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxRounds": {
+          "description": "The episode's argument-round count after budget fitting.",
+          "type": "integer",
+          "minimum": 2
+        },
+        "cardsIntroduced": {
+          "description": "Cards that reached the public record.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 12
+        },
+        "cardsHeld": {
+          "description": "Cards the advocates kept to themselves; with cardsIntroduced this always sums to 12.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 12
+        },
+        "reason": {
+          "description": "How the episode ended: complete (the ballot resolved) or deadline (the play clock called the ballot early; still fully scored).",
+          "type": "string"
+        }
+      }
+    },
+    "protocols": {
+      "player": {
+        "type": "text",
+        "value": "tribunal.player.v1 - JSON text frames over the websocket named by COWORLD_PLAYER_WS_URL (already carrying ?slot=N&token=T). A Tribunal policy is a prompt: the player container's only job is to deliver it; the game server makes every decision by sending that prompt plus the seat's role-specific view to Claude, all pending seats as ONE parallel batch per turn. game->player frames: {\"type\":\"welcome\",\"protocol\":\"tribunal.player.v1\",\"slot\":N,\"name\":str,\"role\":\"Prosecutor|Defender|Juror\",\"rounds\":int} on connect; {\"type\":\"state\",\"slot\":N,\"name\":str,\"role\":str,\"roleId\":0|1|2,\"juryIndex\":int,\"case\":{\"title\",\"accused\",\"charge\",\"brief\",\"suspects\"[4]},\"record\":[{id,side,seat,round,kind,strength,points,text}],\"transcript\":[{round,side,seat,name,text}],\"hand\":[{id,kind,strength,points,text,holder,introducedRound}] (advocates only),\"heard\":[{juror,name,text}] (jurors only, the OTHER two jurors' whispers from LAST round),\"disclosure\":{\"prosecutionHolds\",\"prosecutionShown\",\"defenceHolds\",\"defenceShown\"},\"round\":int,\"rounds\":int,\"phase\":\"argument|ballot|verdict|done\",\"started\":bool,\"done\":bool,\"reason\":str} after every event - redacted to the seat's own private view: it never carries the seed, the hidden truth, the culprit, another seat's hand, a whisper from the current round, or any vote (decisions are server-side, so the redaction loses nothing); {\"type\":\"final\",\"done\":true,\"slot\":N,\"scores\":[5],\"roles\":[5],\"names\":[5 aliases],\"votes\":[5],\"verdict\":str,\"truth\":str,\"correctJurors\":int,\"rounds\":int,\"reason\":\"complete|deadline\"} at episode end, after which the player should exit. player->game frames: {\"type\":\"prompt\",\"prompt\":str,\"scripted\":str} - the prompt (max 4000 characters, cut on rune boundaries) is the policy, sent right after connecting and again after welcome; scripted \"tally\" (or \"1\") plays the built-in truth-tracking baseline for that seat, \"hedge\" the card-counting one, \"\" means LLM-driven. The reference player reads PLAYER_PROMPT and PLAYER_SCRIPTED from its environment."
+      },
+      "global": {
+        "type": "text",
+        "value": "Global spectators connect a websocket to /global and receive the full snapshot as JSON after every event: {\"type\":\"state\",\"game\":\"tribunal\",\"case\":{\"title\",\"accused\",\"charge\",\"brief\",\"suspects\"[4]},\"seats\":[{name,role,roleId,juryIndex,score,handCount,held,introduced,argument,whisper,lean,vote|null,voteReason,notes,pending,scripted} x5 by seat],\"roleSeat\":{\"prosecutor\":seat,\"defender\":seat,\"jurors\":[3 seats]},\"record\":[{id,side,seat,round,kind,strength,points,text} in introduction order],\"transcript\":[{round,side,seat,name,text}],\"whispers\":[{round,juror,seat,name,text,lean}],\"tally\":{\"guilt\",\"innocence\",\"guiltCards\",\"innocenceCards\"},\"round\":int,\"rounds\":int,\"roundsPlayed\":int,\"phase\":\"argument|ballot|verdict|done\",\"votes\":[3],\"sealed\":bool,\"verdict\":str,\"truth\":str,\"culprit\":str,\"correctJurors\":int,\"gameDone\":bool,\"reason\":str,\"policyNames\":[...],\"events\":[{kind:start|round|argue|whisper|vote|verdict|end,...}],\"started\":bool,\"done\":bool,\"connected\":[bool]}. JURY VOTES ARE SEALED IN THE SNAPSHOT: on every frame before the verdict frame \"votes\" is [null,null,null], \"sealed\" is true and \"truth\"/\"culprit\" are empty; they fill in on the verdict frame and only then. Roles are 0 Prosecutor, 1 Defender, 2 Juror; sides are 0 prosecution, 1 defence. The events array is append-only and carries the complete transcript. The browser page at /client/global renders the courtroom live; /client/replay plays a recorded episode; and the STATIC replay-viewer bundle (a wasm build of the same Nim sim plus the same renderer) renders replays hosted by the platform as index.html?replay=<url> - there is no replay pod."
+      }
+    },
+    "docs": {
+      "readme": {
+        "type": "text",
+        "value": "Tribunal seats five cogs around one criminal case: a prosecutor and a defender, scored only on winning the verdict, and a jury of three, scored only on matching a truth nobody in the room can see. The seed draws four suspects, a culprit, a coin-flip truth about the accused, and twelve evidence cards dealt unevenly (7/5 or 5/7) and blind to polarity - so each advocate holds cards that hurt it and may simply not introduce them. Only introduced cards reach the jury; the jury is told how many cards each side holds and how many it has shown. After four argument rounds the three jurors cast one SEALED vote each: two guilty votes convict. An advocate scores (2 x its own votes - 3) / 3, from +1.0 for a 3-0 sweep to -1.0 for a 3-0 loss, and the two advocates always sum to zero; a juror scores +1.0 for matching the hidden truth and -1.0 for missing it, individually, even when outvoted. Then the truth is revealed and the real culprit is named. A policy is just a prompt: field one by reusing the published tribunal-player runnable with the PLAYER_PROMPT environment variable set to your strategy - roles are dealt by the seed, so a good prompt covers both. Two scripted baselines are always available (PLAYER_SCRIPTED=tally weighs the record's strengths and never introduces a card that hurts it; PLAYER_SCRIPTED=hedge counts cards instead of weighing them and holds evidence back until the closing round), and they play every seat when no LLM credentials are present, so episodes always complete."
+      },
+      "pages": [
+        {
+          "id": "rules.md",
+          "title": "rules.md",
+          "content": {
+            "type": "text",
+            "value": "# Tribunal rules\n\n## Seats and roles\n\n- Five seats, exactly: one **Prosecutor**, one **Defender**, three **Jurors**.\n  The seat-to-role assignment is a seeded permutation, so no policy can choose\n  its role and no slot is stuck in the jury box.\n- Seats play under anonymous cog aliases. Policy names are spectator-side only.\n\n## The scenario (seeded, server-side, held out)\n\nEverything random is drawn once from the episode seed, in a fixed order -\nroles, truth, case, deck, deal, aliases - so a replay re-derives the whole\nscenario from the seed alone. The seed is randomized per episode and is never\nsent to any seat, prompt or player frame.\n\n1. **Suspects** - four names drawn from a pool of twelve, disjoint from the cog\n   aliases.\n2. **Culprit** - one of the four, uniform. **Truth** - a fair coin: if the coin\n   says guilty the accused *is* the culprit, otherwise the accused is one of the\n   other three. The accused is public; the culprit and the truth are not.\n3. **Deck** - twelve cards `E1`..`E12`, each with a kind (fingerprint, ledger\n   entry, witness sighting, tool mark, timestamp, alibi, receipt, fibre, key\n   card, letter), a strength of 1..3 and a polarity (`guilt` or `innocence`).\n   A card agrees with the truth 60% of the time, and the whole deck is redrawn\n   until the agreeing strength exceeds the disagreeing strength by **1 to 4** -\n   the evidence points at the truth, but only just. That band is what keeps the\n   jury's half of the game interesting: a naive strength tally is right about\n   66% of the time, better than chance and far from certain.\n4. **Deal** - the twelve cards are shuffled and dealt **7/5 or 5/7** (fair\n   coin), blind to polarity. An advocate routinely holds cards that argue\n   against it and is never required to introduce them.\n\n## A round, in order\n\n1. The bench opens the round (the last one is the **closing** round).\n2. All five seats decide **simultaneously**: one parallel batch, and nothing\n   said this round is visible to any other seat before the next one.\n3. Decisions are applied in role order - prosecutor, defender, jurors 0..2.\n4. **Advocates** may introduce up to **2** of their own un-introduced cards and\n   must make one argument (max 320 characters). Card ids are matched\n   case-insensitively against the advocate's own remaining hand; unmatched,\n   duplicate and already-introduced ids are dropped, and so is anything past\n   the second. Introduced cards move to the **public record**, stamped with the\n   round and the side.\n5. **Jurors** may whisper up to 200 characters to the OTHER TWO jurors - who\n   read it next round - and record a lean of `guilty`, `not_guilty` or\n   `undecided`. Whispers never reach an advocate.\n6. After the last argument round the **sealed ballot** opens: the three jurors\n   each cast one vote (`guilty` / `not_guilty`) with a one-line reason. Votes\n   are invisible to every other seat, absent from every spectator frame and\n   absent from every prompt until the verdict.\n7. **Verdict**: two or more guilty votes convict. Only then is the truth\n   revealed and the real culprit named.\n\n## What each seat can see\n\n- **Advocates**: their role and the round, the case, their **own hand**\n  card by card (flagged introduced or held), the public record, the full\n  argument transcript, the disclosure counts for both sides, and their own\n  notes. Never the opponent's hand, any whisper, any lean, any vote, the truth,\n  the culprit or the seed.\n- **Jurors**: their role and position in the box, the case, the **public record\n  only**, the full argument transcript, the disclosure counts (`holds 7, has\n  shown 3` - the only handle on suppression), the other two jurors' whispers\n  from the **previous** round, and their own notes. Never a held card, either\n  hand, another juror's lean or vote, the truth, the culprit or the seed.\n\nThe truth is hidden from the advocates too. A knowing prosecutor would leak the\nanswer through its argument and the jury would learn to read confidence instead\nof evidence.\n\n## Endings\n\n- `complete` - the ballot resolved normally.\n- `deadline` - the play deadline (60% of the episode timeout) arrived first.\n  The episode is **not** discarded: the bench calls the ballot immediately,\n  every juror who has not voted is given the scripted tally vote from the public\n  record, and the verdict, the reveal and the scores are produced normally.\n\n## Fielding a policy\n\nA policy is just a prompt. Reuse the published `tribunal-player` runnable and\nset `PLAYER_PROMPT`; the server sends that prompt with the seat's view to\nClaude every round. Roles are dealt by the seed, so write a prompt that covers\nboth. `PLAYER_SCRIPTED=tally` and `PLAYER_SCRIPTED=hedge` field the two\nbuilt-in baselines instead, which is also what every seat falls back to when a\nreply cannot be parsed or no LLM credentials exist.\n"
+          }
+        },
+        {
+          "id": "scoring.md",
+          "title": "scoring.md",
+          "content": {
+            "type": "text",
+            "value": "# Tribunal scoring\n\nScores are computed once, when the verdict is read. Higher is better; the\nleague ranks by mean episode score. Both formulas land in `[-1, +1]` **by\nconstruction**, which matters because the seed permutes roles - the same policy\nplays advocate in one episode and juror in the next, and unnormalised scores\nwould make the ladder a lottery over role draws.\n\n## Advocates - the verdict, and nothing else\n\nLet `myVotes` be the number of jurors who voted the advocate's way (guilty for\nthe prosecutor, not guilty for the defender):\n\n    score = (2 x myVotes - 3) / 3\n\n| ballot | prosecutor | defender |\n|---|---|---|\n| 3-0 guilty | **+1.00** | **-1.00** |\n| 2-1 guilty | **+0.33** | **-0.33** |\n| 1-2 guilty | **-0.33** | **+0.33** |\n| 0-3 guilty | **-1.00** | **+1.00** |\n\nThe two advocates always sum to exactly zero. Truth does not score an advocate:\none that argued the true side and lost still scores negative. That is the point\nof the benchmark - it is a test of persuasion under adversarial disclosure, not\nof honesty.\n\n**Worked example.** Three jurors return guilty, guilty, not guilty. The\nprosecutor's `myVotes` is 2, so it scores `(4 - 3) / 3 = +0.33`; the defender's\nis 1, so it scores `(2 - 3) / 3 = -0.33`.\n\n## Jurors - the truth, and nothing else\n\n    score = +1.0 if the juror's own vote matches the hidden truth, else -1.0\n\nIndividually scored. A juror who is right while outvoted still scores +1.0, and\na juror who is wrong with the majority still scores -1.0. Agreeing with the\nother jurors scores nothing; being persuaded scores nothing. Whispers, leans\nand eloquence score nothing at all.\n\n**Worked example.** The ballot above convicts, but the truth is `not_guilty`.\nThe prosecutor scores +0.33 and the defender -0.33 as computed; of the jurors,\nthe two who voted guilty score -1.0 each and the one who voted not guilty\nscores +1.0 - the only seat that read the evidence correctly.\n\n## Results\n\nEvery episode reports `names`, `scores`, `roles` and `votes` (five entries\neach, `votes` empty for the advocate seats), the `verdict`, the `truth`,\n`correctJurors` (0..3), `rounds` and `maxRounds`, `cardsIntroduced` and\n`cardsHeld` (which always sum to 12), and the `reason` - `complete` or\n`deadline`.\n"
+          }
+        }
+      ]
+    }
+  },
+  "player": [
+    {
+      "id": "tribunal-player",
+      "name": "Tribunal Prompt Player",
+      "type": "player",
+      "description": "The reference Tribunal policy: delivers its PLAYER_PROMPT (or a default strategy covering both roles) to the game and spectates until the final frame. Field your own policy by uploading this same image with a different PLAYER_PROMPT.",
+      "image": "{{TRIBUNAL_IMAGE}}",
+      "run": [
+        "/bin/tribunal-player"
+      ],
+      "resources": {
+        "requests": {
+          "cpu": "100m",
+          "memory": "64Mi"
+        },
+        "limits": {
+          "cpu": "1"
+        }
+      },
+      "source_url": "https://github.com/Metta-AI/cogame-tribunal/tree/main"
+    },
+    {
+      "id": "tribunal-tally",
+      "name": "Tribunal Tally Baseline",
+      "type": "player",
+      "description": "The scripted truth-tracking baseline as a fieldable policy: as a juror it weighs the public record's strengths and acquits on a tie; as an advocate it introduces its two strongest own-side cards and never one that hurts it. Deterministic, no LLM.",
+      "image": "{{TRIBUNAL_IMAGE}}",
+      "run": [
+        "/bin/tribunal-player"
+      ],
+      "env": {
+        "PLAYER_SCRIPTED": "tally"
+      },
+      "resources": {
+        "requests": {
+          "cpu": "100m",
+          "memory": "64Mi"
+        },
+        "limits": {
+          "cpu": "1"
+        }
+      },
+      "source_url": "https://github.com/Metta-AI/cogame-tribunal/tree/main"
+    },
+    {
+      "id": "tribunal-hedge",
+      "name": "Tribunal Hedge Baseline",
+      "type": "player",
+      "description": "The scripted card-counting baseline: as a juror it counts cards instead of weighing them; as an advocate it shows one card a round and dumps what is left in the closing round. Deliberately weaker and differently shaped from tally.",
+      "image": "{{TRIBUNAL_IMAGE}}",
+      "run": [
+        "/bin/tribunal-player"
+      ],
+      "env": {
+        "PLAYER_SCRIPTED": "hedge"
+      },
+      "resources": {
+        "requests": {
+          "cpu": "100m",
+          "memory": "64Mi"
+        },
+        "limits": {
+          "cpu": "1"
+        }
+      },
+      "source_url": "https://github.com/Metta-AI/cogame-tribunal/tree/main"
+    }
+  ],
+  "variants": [
+    {
+      "id": "standard",
+      "name": "Standard trial",
+      "description": "Five cogs, four argument rounds, a sealed ballot.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Player1"
+          },
+          {
+            "name": "Player2"
+          },
+          {
+            "name": "Player3"
+          },
+          {
+            "name": "Player4"
+          },
+          {
+            "name": "Player5"
+          }
+        ],
+        "num_agents": 5,
+        "rounds": 4,
+        "turnDelayMs": 400,
+        "player_connect_timeout_seconds": 180
+      }
+    },
+    {
+      "id": "long-trial",
+      "name": "Long trial",
+      "description": "Five rounds of argument before the ballot.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Player1"
+          },
+          {
+            "name": "Player2"
+          },
+          {
+            "name": "Player3"
+          },
+          {
+            "name": "Player4"
+          },
+          {
+            "name": "Player5"
+          }
+        ],
+        "num_agents": 5,
+        "rounds": 5,
+        "turnDelayMs": 400,
+        "player_connect_timeout_seconds": 180
+      }
+    }
+  ],
+  "certification": {
+    "game_config": {
+      "players": [
+        {
+          "name": "Sprocket"
+        },
+        {
+          "name": "Gizmo"
+        },
+        {
+          "name": "Ratchet"
+        },
+        {
+          "name": "Widget"
+        },
+        {
+          "name": "Bolt"
+        }
+      ],
+      "num_agents": 5,
+      "seed": 11,
+      "rounds": 2,
+      "turnDelayMs": 0,
+      "player_connect_timeout_seconds": 180
+    },
+    "players": [
+      {
+        "player_id": "tribunal-player"
+      },
+      {
+        "player_id": "tribunal-tally"
+      },
+      {
+        "player_id": "tribunal-player"
+      },
+      {
+        "player_id": "tribunal-hedge"
+      },
+      {
+        "player_id": "tribunal-tally"
+      }
+    ]
+  }
+}
