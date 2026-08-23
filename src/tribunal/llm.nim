@@ -30,8 +30,6 @@ const
   AnthropicUrl = "https://api.anthropic.com/v1/messages"
   AnthropicVersion = "2023-06-01"
   BedrockAnthropicVersion = "bedrock-2023-05-31"
-  ## The private notebook a seat may carry between rounds.
-  MaxNotesLen* = 600
 
 type
   ScriptKind* = enum

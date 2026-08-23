@@ -36,6 +36,8 @@ const
   MaxArgumentLen* = 320
   MaxWhisperLen* = 200
   MaxReasonLen* = 200
+  ## The private notebook a seat may carry between rounds.
+  MaxNotesLen* = 600
   RoleNames* = ["Prosecutor", "Defender", "Juror"]
   SideNames* = ["prosecution", "defence"]
   CogNames* = [
@@ -611,7 +613,7 @@ proc applyArgument*(sim: var Sim, seat: int, cardIds: seq[string],
 
   sim.arguments.add((round: sim.round, seat: seat, side: side, text: text))
   if notes.len > 0:
-    sim.notes[seat] = notes
+    sim.notes[seat] = tidy(notes, MaxNotesLen)
   var event = blankEvent(evArgue)
   event.round = sim.round
   event.seat = seat
@@ -652,7 +654,7 @@ proc applyWhisper*(sim: var Sim, seat: int, whisper, lean, notes: string,
   sim.leans[sim.juryIndex[seat]] = leaning
   sim.whispers.add((round: sim.round, seat: seat, text: text, lean: leaning))
   if notes.len > 0:
-    sim.notes[seat] = notes
+    sim.notes[seat] = tidy(notes, MaxNotesLen)
   var event = blankEvent(evWhisper)
   event.round = sim.round
   event.seat = seat
@@ -695,7 +697,7 @@ proc applyVote*(sim: var Sim, seat: int, vote, reason, notes: string,
   sim.votes[index] = chosen
   sim.voteReasons[index] = tidy(reason, MaxReasonLen)
   if notes.len > 0:
-    sim.notes[seat] = notes
+    sim.notes[seat] = tidy(notes, MaxNotesLen)
   var event = blankEvent(evVote)
   event.round = sim.config.rounds
   event.seat = seat

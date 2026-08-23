@@ -337,6 +337,9 @@ suite "text safety":
     let argued = sim.argumentOf(sim.advocateSeat[0])
     check argued.runeLen == MaxArgumentLen
     check argued.validateUtf8() == -1
+    ## Notes are capped by the rules too, not only by the LLM parse path.
+    check sim.notes[sim.advocateSeat[0]].runeLen == MaxNotesLen
+    check sim.events[^1].notes.runeLen == MaxNotesLen
     var whisper = ""
     for index in 0 ..< 500:
       whisper.add("ß")
