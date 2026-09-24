@@ -21,7 +21,7 @@
 ## scripted bots are also fieldable policies.
 
 import
-  std/[algorithm, json, os, strutils, unicode],
+  std/[algorithm, json, os, strutils, times, unicode],
   bitworld/runtime,
   curly,
   sim
@@ -67,7 +67,11 @@ type
                           ## picks from bedrockModels instead
     maxOutputTokens: int
     timeoutSeconds: int
-    disabled*: bool   ## true once credentials are known-unavailable
+    disabled*: bool   ## Anthropic transport unavailable; Jev may still work
+    jevEndpoint: string
+    jevKey: string
+    jevModel: string
+    jevTrajectoryId: string
 
 proc parseScriptKind*(text: string): ScriptKind =
   ## PLAYER_SCRIPTED values: "1"/"true"/"yes"/"tally" play the truth-tracking
@@ -131,6 +135,25 @@ proc newLlmClient*(config: GameConfig): LlmClient =
   )
   let bedrockEndpoint = getEnv("AWS_ENDPOINT_URL_BEDROCK_RUNTIME").strip()
   let bedrockToken = getEnv("AWS_BEARER_TOKEN_BEDROCK").strip()
+  let captureUrl = getEnv("METTA_CAPTURE_URL").strip()
+  let typesafeKey = getEnv("TYPESAFE_API_KEY").strip()
+  if bedrockEndpoint.len > 0:
+    result.jevEndpoint = bedrockEndpoint.strip(chars = {'/'}, leading = false)
+    result.jevModel = "typesafe/jev-1.13"
+  elif captureUrl.len > 0:
+    result.jevEndpoint = captureUrl.strip(chars = {'/'}, leading = false)
+    result.jevKey = getEnv("METTA_CAPTURE_KEY").strip()
+    if result.jevKey.len == 0:
+      raise newException(TribunalError, "METTA_CAPTURE_KEY is required")
+    result.jevModel = getEnv("METTA_CAPTURE_MODEL", "typesafe/jev-1.13")
+    result.jevTrajectoryId = "tribunal-jev-" & $config.seed
+  elif typesafeKey.len > 0:
+    result.jevEndpoint = getEnv("TYPESAFE_BASE_URL",
+      "https://api.typesafe.ai").strip(chars = {'/'}, leading = false)
+    result.jevKey = typesafeKey
+    result.jevModel = getEnv("TYPESAFE_DEFAULT_MODEL", "jev-latest")
+  if result.jevEndpoint.len > 0:
+    result.curl = newCurly()
   if bedrockEndpoint.len > 0 or bedrockToken.len > 0:
     let region = getEnv("AWS_REGION",
       getEnv("AWS_DEFAULT_REGION", "us-west-2"))
@@ -154,7 +177,7 @@ proc newLlmClient*(config: GameConfig): LlmClient =
   else:
     result.transport = ltNone
     result.disabled = true
-    echo "tribunal llm: no LLM credentials; using scripted fallback"
+    echo "tribunal llm: no Anthropic credentials; prompt seats use scripted fallback"
 
 # ---- Turn shape -------------------------------------------------------------
 
@@ -471,6 +494,9 @@ proc textOf(client: LlmClient, response: Response, error, url: string):
     raise newException(TribunalError, "anthropic error " & $response.code &
       ": " & response.body[0 .. min(response.body.high, 300)])
   let payload = parseJson(response.body)
+  echo "tribunal anthropic: model ", payload{"model"}.getStr(),
+    " input_tokens ", payload["usage"]{"input_tokens"}.getInt(),
+    " output_tokens ", payload["usage"]{"output_tokens"}.getInt()
   if payload{"stop_reason"}.getStr() == "refusal":
     raise newException(TribunalError, "anthropic refusal")
   for contentBlock in payload["content"]:
@@ -551,6 +577,91 @@ proc applyDecision*(sim: var Sim, seat: int, decision: Decision,
     sim.applyVote(seat, decision.vote, decision.reason, decision.notes,
       scripted)
 
+proc jevCriteria*(sim: Sim, seat: int): JsonNode =
+  result = newJObject()
+  case sim.turnKind(seat)
+  of tkArgue:
+    result["none"] = %"Introduce no evidence this round"
+    var held: seq[EvidenceCard]
+    for card in sim.handOf(sim.roleOf[seat]):
+      if card.introducedRound < 0:
+        held.add(card)
+    for index, card in held:
+      result[card.id] = %("Introduce " & card.id & ": " & card.text &
+        " (" & card.points & ", strength " & $card.strength & ")")
+      for later in index + 1 ..< held.len:
+        let other = held[later]
+        result[card.id & "+" & other.id] = %("Introduce " & card.id &
+          " and " & other.id & ": " & card.points & " strength " &
+          $card.strength & "; " & other.points & " strength " &
+          $other.strength)
+  of tkWhisper:
+    result["guilty"] = %"Tell the other jurors you currently lean guilty"
+    result["not_guilty"] = %"Tell the other jurors you currently lean not guilty"
+    result["undecided"] = %"Tell the other jurors you remain undecided"
+  of tkVote:
+    result["guilty"] = %"Vote guilty on the sealed ballot"
+    result["not_guilty"] = %"Vote not guilty on the sealed ballot"
+
+proc jevDecision*(sim: Sim, seat: int, payload, criteria: JsonNode): Decision =
+  let answer = payload["answers"]["decision"]
+  let probabilities = answer["probabilities"]
+  let reported = answer["choice"].getStr()
+  if answer["type"].getStr() != "choice" or
+      not criteria.hasKey(reported) or probabilities.len != criteria.len:
+    raise newException(TribunalError, "Jev returned the wrong choice set")
+  let confidence = answer["confidence"].getFloat()
+  if confidence < 0 or confidence > 1:
+    raise newException(TribunalError, "Jev confidence is outside [0, 1]")
+  var total = 0.0
+  var best = -1.0
+  var choice = ""
+  for name, probability in probabilities.pairs:
+    if not criteria.hasKey(name):
+      raise newException(TribunalError, "Jev returned an unknown choice")
+    let value = probability.getFloat()
+    if value < 0 or value > 1:
+      raise newException(TribunalError, "Jev probability is outside [0, 1]")
+    total += value
+    if value > best:
+      best = value
+      choice = name
+  if abs(total - 1) > probabilities.len.float * 0.005 + 1e-6:
+    raise newException(TribunalError, "Jev probabilities do not sum to one")
+  case sim.turnKind(seat)
+  of tkArgue:
+    var picks: seq[EvidenceCard]
+    if choice != "none":
+      for id in choice.split('+'):
+        for card in sim.handOf(sim.roleOf[seat]):
+          if card.id == id and card.introducedRound < 0:
+            picks.add(card)
+    if choice != "none" and picks.len != choice.split('+').len:
+      raise newException(TribunalError, "Jev chose unavailable evidence")
+    for card in picks:
+      result.introduce.add(card.id)
+    var phrases: seq[string]
+    for card in picks:
+      phrases.add(card.id & " points " & card.points & " with strength " &
+        $card.strength)
+    result.argument =
+      if picks.len == 0: "I introduce no new evidence this round."
+      else: "I introduce " & phrases.join(" and ") & "."
+  of tkWhisper:
+    result.lean = choice
+    result.whisper =
+      if choice == "undecided": "I remain undecided; weigh shown and hidden evidence."
+      else: "I currently lean " & choice.replace('_', ' ') &
+        "; weigh shown and hidden evidence."
+  of tkVote:
+    result.vote = choice
+    result.reason = "I weighed the visible record and undisclosed evidence."
+  echo "tribunal jev: seat ", seat, " choice ", choice,
+    " reported ", reported, " confidence ", confidence,
+    " model ", payload{"model"}.getStr(),
+    " input_tokens ", payload["usage"]{"input_tokens"}.getInt(),
+    " output_tokens ", payload["usage"]{"output_tokens"}.getInt()
+
 # ---- The turn's batch -------------------------------------------------------
 
 proc decideAll*(
@@ -558,7 +669,8 @@ proc decideAll*(
   sim: Sim,
   seats: seq[int],
   prompts: seq[string],
-  scripted: seq[ScriptKind]
+  scripted: seq[ScriptKind],
+  jev: seq[bool]
 ): seq[Decision] =
   ## One decision per seat in `seats`, in order — the whole turn as ONE
   ## parallel batch, because the seats decide simultaneously. Never raises:
@@ -568,30 +680,77 @@ proc decideAll*(
   var open: seq[int]     ## indexes into `seats` still undecided
   for index, seat in seats:
     let kind = scripted[seat]
-    if kind != skNone or client.disabled:
+    if kind != skNone or (client.disabled and not jev[seat]) or
+        (jev[seat] and client.jevEndpoint.len == 0):
       result[index] = scriptedAction(sim, seat, kind)
     else:
       open.add(index)
   for attempt in 0 .. 1:
-    if open.len == 0 or client.disabled:
+    if open.len == 0:
+      break
+    if client.disabled:
+      var enabled: seq[int]
+      for index in open:
+        if jev[seats[index]]:
+          enabled.add(index)
+        else:
+          result[index] = scriptedAction(sim, seats[index], skTally)
+      open = enabled
+    if open.len == 0:
       break
     var batch: RequestBatch
     for index in open:
       let seat = seats[index]
-      var user = sim.userPrompt(seat, prompts[seat])
-      if attempt > 0:
-        user.add("\nYour previous reply was invalid. Respond with ONLY the " &
-          "requested JSON object.")
-      let request = client.requestFor(systemPrompt(sim, seat), user)
-      batch.post(request.url, request.headers, request.body, $index)
+      if jev[seat]:
+        var headers: HttpHeaders
+        headers["content-type"] = "application/json"
+        if client.jevKey.len > 0:
+          headers["authorization"] = "Bearer " & client.jevKey
+        else:
+          headers["x-coworld-player-slot"] = $seat
+        if client.jevTrajectoryId.len > 0:
+          headers["x-metta-trajectory-id"] =
+            client.jevTrajectoryId & "-" & $seat
+        let body = %*{
+          "model": client.jevModel,
+          "state": sim.systemPrompt(seat) & "\n\n" &
+            sim.userPrompt(seat, prompts[seat]),
+          "questions": {"decision": {
+            "type": "choice",
+            "instructions": "Choose the legal action that best serves your own role's scoring rule. Advocates want juror votes for their side; jurors want the true verdict, independent of the other jurors. Account for hidden evidence and earlier arguments.",
+            "criteria": sim.jevCriteria(seat)
+          }}
+        }
+        batch.post(client.jevEndpoint & "/v1/systemone", headers,
+          $body, $index)
+      else:
+        var user = sim.userPrompt(seat, prompts[seat])
+        if attempt > 0:
+          user.add("\nYour previous reply was invalid. Respond with ONLY the " &
+            "requested JSON object.")
+        let request = client.requestFor(systemPrompt(sim, seat), user)
+        batch.post(request.url, request.headers, request.body, $index)
+    let started = epochTime()
     let responses = client.curl.makeRequests(batch, client.timeoutSeconds)
+    echo "tribunal llm: batch ", open.len,
+      " latency_ms ", ((epochTime() - started) * 1000).int
     var stillOpen: seq[int]
     for position, index in open:
       let seat = seats[index]
       try:
-        let text = client.textOf(responses[position].response,
-          responses[position].error, batch[position].url)
-        let decision = sim.parseReply(seat, extractJsonObject(text))
+        var decision: Decision
+        if jev[seat]:
+          let response = responses[position].response
+          let error = responses[position].error
+          if error.len > 0 or response.code < 200 or response.code >= 300:
+            raise newException(TribunalError, "Jev transport failed: " &
+              error & " HTTP " & $response.code)
+          decision = sim.jevDecision(seat, parseJson(response.body),
+            sim.jevCriteria(seat))
+        else:
+          let text = client.textOf(responses[position].response,
+            responses[position].error, batch[position].url)
+          decision = sim.parseReply(seat, extractJsonObject(text))
         ## Reject illegal replies here so the retry carries the hint.
         var probe = sim
         probe.applyDecision(seat, decision, false)

@@ -17,7 +17,8 @@
 ##                   seat's own private view (hands, whispers and votes are
 ##                   hidden information)
 ##                   {"type":"final","scores":[...],"votes":[...],...}
-##   player -> game: {"type":"prompt","prompt":"...","scripted":"tally"}
+##   player -> game: {"type":"prompt","prompt":"...","scripted":"tally",
+##                   "jev":false}
 ##                   (max 4000 chars; scripted plays a built-in baseline for
 ##                   that seat: "tally" / "1", or "hedge")
 
@@ -40,6 +41,7 @@ type
     sim: Sim
     prompts: seq[string]
     scripted: seq[ScriptKind]
+    jev: seq[bool]
     playerSockets: Table[int, WebSocket]
     socketSlots: Table[WebSocket, int]
     globalSockets: HashSet[WebSocket]
@@ -261,6 +263,7 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
       var seats: seq[int]
       var prompts: seq[string]
       var scripted: seq[ScriptKind]
+      var jev: seq[bool]
       withLock stateLock:
         if state.sim.done:
           break
@@ -279,6 +282,7 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
         simCopy = state.sim
         prompts = state.prompts
         scripted = state.scripted
+        jev = state.jev
         echo "tribunal: ",
           (if state.sim.phase == phBallot: "sealed ballot"
            else: "argument round " & $(state.sim.round + 1) & " of " &
@@ -288,7 +292,7 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
       ## The slow part (Claude, ONE parallel batch for the whole turn) runs
       ## outside the lock on a snapshot; only this thread mutates the sim, so
       ## the snapshot cannot go stale.
-      let decisions = client.decideAll(simCopy, seats, prompts, scripted)
+      let decisions = client.decideAll(simCopy, seats, prompts, scripted, jev)
 
       withLock stateLock:
         var decisionOf = initTable[int, Decision]()
@@ -304,7 +308,7 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
           ## fell back after its retry — the config-derived flags cannot see
           ## that, and the replay would call the fallback an LLM decision.
           let wasScripted = decision.scripted or
-            scripted[seat] != skNone or client.disabled
+            scripted[seat] != skNone or (client.disabled and not jev[seat])
           echo "tribunal: ", state.sim.names[seat], " (",
             state.sim.roleName(seat), ") ",
             describe(state.sim, seat, decision), " at ",
@@ -459,12 +463,15 @@ proc websocketHandler(
             elif node.kind == JBool: (if node.getBool(): skTally
               else: skNone)
             else: parseScriptKind(node.getStr())
+          let jev = payload{"jev"}.getBool()
           withLock stateLock:
             state.prompts[slot] = prompt
             state.scripted[slot] = scripted
+            state.jev[slot] = jev
           echo "tribunal: slot ", slot, " delivered a prompt (",
             prompt.len, " chars",
-            (if scripted != skNone: ", scripted " & $scripted else: ""), ")"
+            (if scripted != skNone: ", scripted " & $scripted else: ""),
+            (if jev: ", Jev choices" else: ""), ")"
       except CatchableError as error:
         echo "tribunal: ignoring bad player frame: ", error.msg
     of ErrorEvent:
@@ -533,6 +540,7 @@ proc runGameServer*(config: GameConfig, runtimeConfig: RuntimeConfig) =
   state.sim = initSim(config)
   state.prompts = newSeq[string](config.players.len)
   state.scripted = newSeq[ScriptKind](config.players.len)
+  state.jev = newSeq[bool](config.players.len)
   runtimeConfigGlobal = runtimeConfig
 
   let router = buildRouter(replayMode = false)

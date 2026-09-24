@@ -114,7 +114,8 @@ suite "scripted baselines":
     check seats.len == Seats
     let decisions = client.decideAll(sim, seats,
       @["be bold", "", "", "", ""],
-      @[skNone, skNone, skHedge, skNone, skNone])
+      @[skNone, skNone, skHedge, skNone, skNone],
+      @[false, false, false, false, false])
     check decisions.len == Seats
     ## Every decision comes from the SAME snapshot — the turn is simultaneous
     ## — so the expectations are all computed before anything is applied.
@@ -134,6 +135,62 @@ suite "scripted baselines":
     for index, seat in seats:
       sim.applyDecision(seat, decisions[index], true)
     check sim.round == 1
+
+  test "Jev ranks only legal role actions and yields applicable decisions":
+    var sim = initSim(fixture(17, rounds = 2))
+    let advocate = sim.advocateSeat[0]
+    let criteria = sim.jevCriteria(advocate)
+    let card = sim.handOf(0)[0]
+    check criteria.hasKey("none")
+    check criteria.hasKey(card.id)
+    var probabilities = newJObject()
+    for name, _ in criteria.pairs:
+      probabilities[name] = %(if name == card.id: 1.0 else: 0.0)
+    let answer = %*{
+      "answers": {"decision": {"type": "choice", "choice": card.id,
+        "confidence": 0.9, "probabilities": probabilities}},
+      "usage": {"input_tokens": 12, "output_tokens": 3}
+    }
+    let decision = sim.jevDecision(advocate, answer, criteria)
+    check decision.introduce == @[card.id]
+    check card.id in decision.argument
+    check not decision.scripted
+    var applied = sim
+    applied.applyDecision(advocate, decision, false)
+    check applied.record.len == 1
+    expect TribunalError:
+      discard sim.jevDecision(advocate, answer, sim.jevCriteria(sim.advocateSeat[1]))
+
+    let juror = sim.jurorSeat[0]
+    let leanCriteria = sim.jevCriteria(juror)
+    check leanCriteria.len == 3
+    let leanAnswer = %*{
+      "answers": {"decision": {"type": "choice", "choice": "guilty",
+        "confidence": 0.8, "probabilities": {
+          "guilty": 1.0, "not_guilty": 0.0, "undecided": 0.0}}},
+      "usage": {"input_tokens": 9, "output_tokens": 2}
+    }
+    let lean = sim.jevDecision(juror, leanAnswer, leanCriteria)
+    check lean.lean == "guilty"
+    check lean.whisper.len > 0
+    applied = sim
+    applied.applyDecision(juror, lean, false)
+
+    while sim.phase == phArgument:
+      for actor in sim.orderedSeats():
+        sim.applyDecision(actor, scriptedAction(sim, actor, skTally), true)
+    let voteCriteria = sim.jevCriteria(juror)
+    check voteCriteria.len == 2
+    let voteAnswer = %*{
+      "answers": {"decision": {"type": "choice", "choice": "not_guilty",
+        "confidence": 0.7, "probabilities": {
+          "guilty": 0.1, "not_guilty": 0.9}}},
+      "usage": {"input_tokens": 10, "output_tokens": 2}
+    }
+    let vote = sim.jevDecision(juror, voteAnswer, voteCriteria)
+    check vote.vote == "not_guilty"
+    applied = sim
+    applied.applyDecision(juror, vote, false)
 
 suite "reply parsing":
   test "documented spellings are accepted and every field is capped":

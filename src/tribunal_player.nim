@@ -1,9 +1,9 @@
-## Tribunal player: a policy is just a prompt.
+## Tribunal player: a policy is a prompt, Jev choice policy, or scripted.
 ##
 ## Connects to the game, delivers its prompt (from PLAYER_PROMPT, or a default
 ## strategy covering both roles), then idles until the final frame. All of the
-## actual decision making happens inside the game server, which sends this
-## seat's prompt to Claude every round.
+## actual decision making happens inside the game server. PLAYER_JEV=1 ranks
+## bounded choices with Jev; arguments and whispers use factual templates.
 ##
 ## PLAYER_SCRIPTED=tally (or 1) registers the seat as the built-in
 ## truth-tracking baseline instead; PLAYER_SCRIPTED=hedge as the
@@ -39,19 +39,22 @@ when isMainModule:
   let url = getEnv("COWORLD_PLAYER_WS_URL")
   if url.len == 0:
     quit("COWORLD_PLAYER_WS_URL is not set", 1)
+  let jev = getEnv("PLAYER_JEV") == "1"
   var prompt = getEnv("PLAYER_PROMPT")
-  if prompt.len == 0:
+  if prompt.len == 0 and not jev:
     prompt = DefaultPrompt
   let scripted = getEnv("PLAYER_SCRIPTED").strip()
 
   proc promptFrame(): string =
-    $ %*{"type": "prompt", "prompt": prompt, "scripted": scripted}
+    $ %*{"type": "prompt", "prompt": prompt, "scripted": scripted,
+      "jev": jev}
 
   echo "tribunal player: connecting to game"
   let socket = newWebSocket(url)
   socket.send(promptFrame())
   echo "tribunal player: prompt delivered (", prompt.len, " chars",
-    (if scripted.len > 0: ", scripted " & scripted else: ""), ")"
+    (if scripted.len > 0: ", scripted " & scripted else: ""),
+    (if jev: ", Jev choices" else: ""), ")"
 
   ## whisky RAISES on a close frame or a truncated read (only a timeout
   ## returns none), and the game's quit(0) can outrun the flushed final
