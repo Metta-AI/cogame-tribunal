@@ -41,38 +41,20 @@ DESCRIPTION = (
 )
 
 PLAYER_PROTOCOL = (
-    "tribunal.player.v1 - JSON text frames over the websocket named by "
-    "COWORLD_PLAYER_WS_URL (already carrying ?slot=N&token=T). A Tribunal "
-    "policy is a prompt: the player container's only job is to deliver it; "
-    "the game server makes every decision by sending that prompt plus the "
-    "seat's role-specific view to Claude, all pending seats as ONE parallel "
-    "batch per turn. game->player frames: "
-    '{"type":"welcome","protocol":"tribunal.player.v1","slot":N,"name":str,'
-    '"role":"Prosecutor|Defender|Juror","rounds":int} on connect; '
-    '{"type":"state","slot":N,"name":str,"role":str,"roleId":0|1|2,'
-    '"juryIndex":int,"case":{"title","accused","charge","brief","suspects"[4]},'
-    '"record":[{id,side,seat,round,kind,strength,points,text}],'
-    '"transcript":[{round,side,seat,name,text}],'
-    '"hand":[{id,kind,strength,points,text,holder,introducedRound}] (advocates '
-    'only),"heard":[{juror,name,text}] (jurors only, the OTHER two jurors\''
-    ' whispers from LAST round),"disclosure":{"prosecutionHolds",'
-    '"prosecutionShown","defenceHolds","defenceShown"},"round":int,'
-    '"rounds":int,"phase":"argument|ballot|verdict|done","started":bool,'
-    '"done":bool,"reason":str} after every event - redacted to the seat\'s own '
-    "private view: it never carries the seed, the hidden truth, the culprit, "
-    "another seat's hand, a whisper from the current round, or any vote "
-    "(decisions are server-side, so the redaction loses nothing); "
-    '{"type":"final","done":true,"slot":N,"scores":[5],"roles":[5],'
-    '"names":[5 aliases],"votes":[5],"verdict":str,"truth":str,'
-    '"correctJurors":int,"rounds":int,"reason":"complete|deadline"} at episode '
-    "end, after which the player should exit. player->game frames: "
-    '{"type":"prompt","prompt":str,"scripted":str,"jev":bool} - the prompt (max 4000 '
-    "characters, cut on rune boundaries) is the policy, sent right after "
-    'connecting and again after welcome; scripted "tally" (or "1") plays the '
-    'built-in truth-tracking baseline for that seat, "hedge" the '
-    'card-counting one, "" means model-driven. With jev=true the server '
-    'ranks bounded choices and templates the argument or whisper. The '
-    "reference player reads PLAYER_PROMPT, PLAYER_SCRIPTED and PLAYER_JEV."
+    "tribunal.player.v2 - JSON text frames over COWORLD_PLAYER_WS_URL. "
+    "The game sends welcome, seat-private state, and final frames. Prompt "
+    "or scripted policies register with "
+    '{"type":"prompt","prompt":str,"scripted":str}. '
+    "External policies register with "
+    '{"type":"register","control":"external"}. '
+    "Each pending external seat receives "
+    '{"type":"observation","id":int,"observation":<seat-private state>} '
+    "and returns "
+    '{"type":"action","id":int,"action":<advocate, juror, or ballot action>}. '
+    "The game validates evidence ownership, argument and whisper lengths, "
+    "and sealed votes. It owns hidden information, rules, results, and replay. "
+    "PLAYER_JEV=1 ranks ordinary actions inside the player container. Without "
+    "model transport it registers the tally baseline."
 )
 
 GLOBAL_PROTOCOL = (

@@ -28,12 +28,11 @@ out in one parallel batch — five in an argument round, three in the ballot —
 nothing said in round *t* is visible to any other seat before round *t+1*.
 
 **The game supports prompt, Jev choice, and scripted policies.** Every turn the
-server combines each seat's policy with its role-specific view (the case, its
-own hand *or* the public record, the transcript, disclosure counts, permitted
-whispers, and private notes). A prompt policy asks Claude for its full move.
-Jev ranks legal evidence introductions, juror leans, and sealed votes;
-arguments and whispers use factual templates. Player containers deliver the
-policy setting. Two
+game gives each external player its role-specific private view: the case, own
+hand or public record, transcript, disclosure counts, permitted whispers, and
+notes. A prompt policy asks Claude for its full move. The Jev player ranks
+evidence introductions, juror leans, and sealed votes, then returns an ordinary
+action. The game validates it. Arguments and whispers use factual templates. Two
 built-in **scripted baselines** — `tally` (weighs the record's strengths; as an
 advocate introduces its two strongest own-side cards and never one that hurts
 it) and `hedge` (counts cards instead of weighing them; shows one card a round
@@ -78,6 +77,7 @@ Training exports and numeric reinforcement learning: [docs/TRAINING.md](docs/TRA
 - `src/tribunal/server.nim` — mummy HTTP/WS server (player, global, replay)
 - `src/tribunal_player.nim` — the policy-setting player (`PLAYER_PROMPT`,
   `PLAYER_JEV`, or `PLAYER_SCRIPTED` env)
+- `src/tribunal/jev_policy.nim` — player-side System One action ranking
 - `client/` — shared canvas renderer + global/player/replay pages (the parley
   broadcast chrome around the courtroom stage)
 - `replay-viewer/` — static wasm replay viewer (`?replay=<url>`)
@@ -142,11 +142,15 @@ what you are *not* being shown — as a juror.
 Or field a scripted baseline: same image, `--env PLAYER_SCRIPTED=tally` or
 `--env PLAYER_SCRIPTED=hedge`.
 
-For Jev choice play, use the same image with `--env PLAYER_JEV=1`. The game
-server routes its choice calls through the Coworld sidecar or a direct TypeSafe
-key. An unset `PLAYER_PROMPT` adds no operator guidance to Jev.
+For Jev choice play, use the same image with `--env PLAYER_JEV=1`. The player
+routes its choice calls through the Coworld sidecar, Observatory capture, or a
+direct TypeSafe key. Without transport it registers the tally baseline.
 
 ## Local Jev comparison
+
+The paired scores below used the earlier game-side Jev path. They are
+historical integration and cost data; the corrected player policy needs its
+own matched model comparison.
 
 Compile the native game and player, then run matched episodes with approved
 `TYPESAFE_API_KEY` and `ANTHROPIC_API_KEY` environment variables:
