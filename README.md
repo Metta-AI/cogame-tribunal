@@ -65,6 +65,8 @@ the reveal and the scores are produced normally).
 
 ## Layout
 
+Training exports and numeric reinforcement learning: [docs/TRAINING.md](docs/TRAINING.md).
+
 - `src/tribunal.nim` — entrypoint (Coworld runtime contract, live vs replay mode)
 - `src/tribunal/sim.nim` — pure rules: the seeded scenario, the resolution
   order, introduction legality, whisper routing, the sealed ballot, scoring and

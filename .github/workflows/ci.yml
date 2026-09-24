@@ -149,6 +149,15 @@ jobs:
           done
           exit "${fail}"
 
+      - name: Exercise complete training trials
+        run: |
+          nim c --hints:off -d:release --path:src \
+            -o:/tmp/tribunal-posttrain tools/export_posttrain.nim
+          nim c --hints:off -d:release --path:src \
+            -o:/tmp/tribunal-train-bridge tools/train_bridge.nim
+          python3 tools/test_training.py /tmp/tribunal-posttrain \
+            /tmp/tribunal-train-bridge
+
   # ---------------------------------------------------------------------
   # Packaging smoke: the production image builds, and one real episode runs
   # end to end in raw docker with the certification fixture's seat mix.
