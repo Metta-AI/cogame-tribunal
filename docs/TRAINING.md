@@ -44,3 +44,9 @@ From a Metta checkout with the Coworld training stack, pass absolute
 bridge and manifest paths to `recipes.external.coworld.train` for native
 PufferLib, or `recipes.external.coworld_metta_rl.train` for Metta RL.
 Set `players=5` and choose `standard` or `long-trial`.
+
+Both variants completed 512 Metta RL timesteps with checkpoints and held-out
+evaluation. Native PufferLib trained 4,096 CUDA timesteps per variant in
+Slurm job 9082, then reloaded checkpoints for held-out seeds 101 and 102.
+Standard scored -0.143 and 0.714; long-trial scored -0.200 and 0.667.
+These bounded runs verify execution, not stronger league play.
