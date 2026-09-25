@@ -30,8 +30,10 @@ DESCRIPTION = (
     "the advocates, knows the truth: adversarial persuasion against "
     "truth-tracking is the whole benchmark. Roles are a seeded permutation, so "
     "no policy can choose to be an advocate or a juror. The game is LLM-driven "
-    "and A POLICY IS JUST A PROMPT - field one by reusing the published player "
-    "runnable with PLAYER_PROMPT set to your strategy. Two scripted baselines "
+    "and a policy can be a prompt, Jev choice policy, or scripted baseline. "
+    "Reuse the published player runnable with PLAYER_PROMPT for Claude or "
+    "PLAYER_JEV=1 for Jev evidence disclosure, lean, and sealed vote. "
+    "Two scripted baselines "
     "(tally, which weighs the record's strengths, and hedge, which counts its "
     "cards and holds evidence back) play any seat that registers as scripted, "
     "and every seat when no LLM credentials are available, so episodes always "
@@ -39,37 +41,20 @@ DESCRIPTION = (
 )
 
 PLAYER_PROTOCOL = (
-    "tribunal.player.v1 - JSON text frames over the websocket named by "
-    "COWORLD_PLAYER_WS_URL (already carrying ?slot=N&token=T). A Tribunal "
-    "policy is a prompt: the player container's only job is to deliver it; "
-    "the game server makes every decision by sending that prompt plus the "
-    "seat's role-specific view to Claude, all pending seats as ONE parallel "
-    "batch per turn. game->player frames: "
-    '{"type":"welcome","protocol":"tribunal.player.v1","slot":N,"name":str,'
-    '"role":"Prosecutor|Defender|Juror","rounds":int} on connect; '
-    '{"type":"state","slot":N,"name":str,"role":str,"roleId":0|1|2,'
-    '"juryIndex":int,"case":{"title","accused","charge","brief","suspects"[4]},'
-    '"record":[{id,side,seat,round,kind,strength,points,text}],'
-    '"transcript":[{round,side,seat,name,text}],'
-    '"hand":[{id,kind,strength,points,text,holder,introducedRound}] (advocates '
-    'only),"heard":[{juror,name,text}] (jurors only, the OTHER two jurors\''
-    ' whispers from LAST round),"disclosure":{"prosecutionHolds",'
-    '"prosecutionShown","defenceHolds","defenceShown"},"round":int,'
-    '"rounds":int,"phase":"argument|ballot|verdict|done","started":bool,'
-    '"done":bool,"reason":str} after every event - redacted to the seat\'s own '
-    "private view: it never carries the seed, the hidden truth, the culprit, "
-    "another seat's hand, a whisper from the current round, or any vote "
-    "(decisions are server-side, so the redaction loses nothing); "
-    '{"type":"final","done":true,"slot":N,"scores":[5],"roles":[5],'
-    '"names":[5 aliases],"votes":[5],"verdict":str,"truth":str,'
-    '"correctJurors":int,"rounds":int,"reason":"complete|deadline"} at episode '
-    "end, after which the player should exit. player->game frames: "
-    '{"type":"prompt","prompt":str,"scripted":str} - the prompt (max 4000 '
-    "characters, cut on rune boundaries) is the policy, sent right after "
-    'connecting and again after welcome; scripted "tally" (or "1") plays the '
-    'built-in truth-tracking baseline for that seat, "hedge" the '
-    'card-counting one, "" means LLM-driven. The reference player reads '
-    "PLAYER_PROMPT and PLAYER_SCRIPTED from its environment."
+    "tribunal.player.v2 - JSON text frames over COWORLD_PLAYER_WS_URL. "
+    "The game sends welcome, seat-private state, and final frames. Prompt "
+    "or scripted policies register with "
+    '{"type":"prompt","prompt":str,"scripted":str}. '
+    "External policies register with "
+    '{"type":"register","control":"external"}. '
+    "Each pending external seat receives "
+    '{"type":"observation","id":int,"observation":<seat-private state>} '
+    "and returns "
+    '{"type":"action","id":int,"action":<advocate, juror, or ballot action>}. '
+    "The game validates evidence ownership, argument and whisper lengths, "
+    "and sealed votes. It owns hidden information, rules, results, and replay. "
+    "PLAYER_JEV=1 ranks ordinary actions inside the player container. Without "
+    "model transport it registers the tally baseline."
 )
 
 GLOBAL_PROTOCOL = (
@@ -207,10 +192,12 @@ of evidence.
 
 ## Fielding a policy
 
-A policy is just a prompt. Reuse the published `tribunal-player` runnable and
-set `PLAYER_PROMPT`; the server sends that prompt with the seat's view to
-Claude every round. Roles are dealt by the seed, so write a prompt that covers
-both. `PLAYER_SCRIPTED=tally` and `PLAYER_SCRIPTED=hedge` field the two
+A policy can be a prompt, Jev choice policy, or scripted baseline. Reuse the
+published `tribunal-player` runnable and set `PLAYER_PROMPT` for Claude. Set
+`PLAYER_JEV=1` to rank legal evidence introductions, juror leans, and sealed
+votes with Jev. Jev arguments and whispers are factual templates, not model
+generated text. Roles are dealt by the seed, so any operator prompt should
+cover both. `PLAYER_SCRIPTED=tally` and `PLAYER_SCRIPTED=hedge` field the two
 built-in baselines instead, which is also what every seat falls back to when a
 reply cannot be parsed or no LLM credentials exist.
 """
@@ -557,6 +544,14 @@ manifest = {
             "same image with a different PLAYER_PROMPT.",
         ),
         player_entry(
+            "tribunal-jev",
+            "Tribunal Jev Choices",
+            "Jev ranks legal evidence introductions, juror leans, and sealed "
+            "votes from each seat's private view. Arguments and whispers use "
+            "factual templates rather than generated prose.",
+            {"PLAYER_JEV": "1"},
+        ),
+        player_entry(
             "tribunal-tally",
             "Tribunal Tally Baseline",
             "The scripted truth-tracking baseline as a fieldable policy: as a "
@@ -605,7 +600,7 @@ manifest = {
             "player_connect_timeout_seconds": 180,
         },
         "players": [
-            {"player_id": "tribunal-player"},
+            {"player_id": "tribunal-jev"},
             {"player_id": "tribunal-tally"},
             {"player_id": "tribunal-player"},
             {"player_id": "tribunal-hedge"},

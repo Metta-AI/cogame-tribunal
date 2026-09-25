@@ -27,11 +27,12 @@ Decisions inside a round are **simultaneous**: every pending seat's prompt goes
 out in one parallel batch — five in an argument round, three in the ballot — and
 nothing said in round *t* is visible to any other seat before round *t+1*.
 
-**The game is LLM-driven and a policy is just a prompt.** Every turn the server
-sends each seat's policy prompt plus its role-specific view (the case, its own
-hand *or* the public record, the transcript, the disclosure counts, the
-whispers it is allowed to hear, its private notes) to Claude, and Claude answers
-with the move. Player containers exist only to deliver their prompt. Two
+**The game supports prompt, Jev choice, and scripted policies.** Every turn the
+game gives each external player its role-specific private view: the case, own
+hand or public record, transcript, disclosure counts, permitted whispers, and
+notes. A prompt policy asks Claude for its full move. The Jev player ranks
+evidence introductions, juror leans, and sealed votes, then returns an ordinary
+action. The game validates it. Arguments and whispers use factual templates. Two
 built-in **scripted baselines** — `tally` (weighs the record's strengths; as an
 advocate introduces its two strongest own-side cards and never one that hurts
 it) and `hedge` (counts cards instead of weighing them; shows one card a round
@@ -74,8 +75,9 @@ Training exports and numeric reinforcement learning: [docs/TRAINING.md](docs/TRA
 - `src/tribunal/llm.nim` — Claude client (one parallel batch per turn) + the two
   scripted baselines
 - `src/tribunal/server.nim` — mummy HTTP/WS server (player, global, replay)
-- `src/tribunal_player.nim` — the prompt-delivery player (`PLAYER_PROMPT` /
-  `PLAYER_SCRIPTED` env)
+- `src/tribunal_player.nim` — the policy-setting player (`PLAYER_PROMPT`,
+  `PLAYER_JEV`, or `PLAYER_SCRIPTED` env)
+- `src/tribunal/jev_policy.nim` — player-side System One action ranking
 - `client/` — shared canvas renderer + global/player/replay pages (the parley
   broadcast chrome around the courtroom stage)
 - `replay-viewer/` — static wasm replay viewer (`?replay=<url>`)
@@ -139,6 +141,49 @@ what you are *not* being shown — as a juror.
 
 Or field a scripted baseline: same image, `--env PLAYER_SCRIPTED=tally` or
 `--env PLAYER_SCRIPTED=hedge`.
+
+For Jev choice play, use the same image with `--env PLAYER_JEV=1`. The player
+routes its choice calls through the Coworld sidecar, Observatory capture, or a
+direct TypeSafe key. Without transport it registers the tally baseline.
+
+## Local Jev comparison
+
+The paired scores below used the earlier game-side Jev path. They are
+historical integration and cost data; the corrected player policy needs its
+own matched model comparison.
+
+Compile the native game and player, then run matched episodes with approved
+`TYPESAFE_API_KEY` and `ANTHROPIC_API_KEY` environment variables:
+
+```bash
+nim c -d:release --path:src -o:/tmp/tribunal-eval-game src/tribunal.nim
+nim c -d:release --path:src -o:/tmp/tribunal-eval-player src/tribunal_player.nim
+uv run --with httpx python tools/eval_jev.py \
+  --game-binary /tmp/tribunal-eval-game \
+  --player-binary /tmp/tribunal-eval-player \
+  --output-dir dist/tribunal-eval-new --seeds 7 11
+```
+
+The evaluator holds the TypeSafe key in its local capture proxy. It writes
+owner-only, append-only SystemOne request/response traces and never puts the
+provider key in a child process argument or an episode artifact. The traces
+are research data, not approved training labels. Each arm uses the same seed,
+seat 0, two rounds, and four scripted tally opponents.
+
+| Seed / seat 0 role | Tally score | Jev score / calls / mean latency | Haiku 4.5 score / calls / mean latency |
+| --- | ---: | --- | --- |
+| 7 / Defender | -1 | -1 / 2 / 242 ms | -1 / 2 / 3,179 ms |
+| 11 / Juror | +1 | +1 / 3 / 172 ms | +1 / 3 / 3,396 ms |
+
+The final run made five successful Jev calls and five Haiku calls, with no
+fallback. Jev used 6,819 input tokens, versus Haiku's 5,165 input and 1,315
+output tokens. At [OpenRouter's Jev 1.13 list rate](https://openrouter.ai/typesafe/jev-1.13/api),
+the direct TypeSafe token counts imply $0.000286 of proxy spend. At
+[Anthropic's Haiku 4.5 list rate](https://www.anthropic.com/news/claude-haiku-4-5),
+Haiku implies $0.011740. These are list-price estimates, not invoices.
+An earlier Jev juror run of seed 11 voted guilty and scored -1; the final
+run voted not guilty and scored +1. One seed per role cannot establish a
+gameplay advantage or a social-intelligence transfer effect.
 
 ## Watching
 

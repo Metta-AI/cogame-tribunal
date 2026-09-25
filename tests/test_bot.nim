@@ -135,6 +135,7 @@ suite "scripted baselines":
       sim.applyDecision(seat, decisions[index], true)
     check sim.round == 1
 
+
 suite "reply parsing":
   test "documented spellings are accepted and every field is capped":
     var sim = initSim(fixture(4, rounds = 2))
