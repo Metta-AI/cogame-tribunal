@@ -30,9 +30,9 @@ DESCRIPTION = (
     "the advocates, knows the truth: adversarial persuasion against "
     "truth-tracking is the whole benchmark. Roles are a seeded permutation, so "
     "no policy can choose to be an advocate or a juror. The game is LLM-driven "
-    "and a policy can be a prompt, Jev choice policy, or scripted baseline. "
-    "Reuse the published player runnable with PLAYER_PROMPT for Claude or "
-    "PLAYER_JEV=1 for Jev evidence disclosure, lean, and sealed vote. "
+    "and a policy can be a prompt, external action policy, or scripted "
+    "baseline. Reuse the published player runnable with PLAYER_PROMPT for "
+    "Claude, or connect an external player to the general seat protocol. "
     "Two scripted baselines "
     "(tally, which weighs the record's strengths, and hedge, which counts its "
     "cards and holds evidence back) play any seat that registers as scripted, "
@@ -53,8 +53,7 @@ PLAYER_PROTOCOL = (
     '{"type":"action","id":int,"action":<advocate, juror, or ballot action>}. '
     "The game validates evidence ownership, argument and whisper lengths, "
     "and sealed votes. It owns hidden information, rules, results, and replay. "
-    "PLAYER_JEV=1 ranks ordinary actions inside the player container. Without "
-    "model transport it registers the tally baseline."
+    "Missing or invalid external actions use the tally baseline."
 )
 
 GLOBAL_PROTOCOL = (
@@ -192,12 +191,11 @@ of evidence.
 
 ## Fielding a policy
 
-A policy can be a prompt, Jev choice policy, or scripted baseline. Reuse the
-published `tribunal-player` runnable and set `PLAYER_PROMPT` for Claude. Set
-`PLAYER_JEV=1` to rank legal evidence introductions, juror leans, and sealed
-votes with Jev. Jev arguments and whispers are factual templates, not model
-generated text. Roles are dealt by the seed, so any operator prompt should
-cover both. `PLAYER_SCRIPTED=tally` and `PLAYER_SCRIPTED=hedge` field the two
+A policy can be a prompt, external action policy, or scripted baseline. Reuse
+the published `tribunal-player` runnable and set `PLAYER_PROMPT` for Claude.
+External policies receive the role-specific private view and return complete
+actions over the player socket. Roles are dealt by the seed, so any operator
+prompt should cover both. `PLAYER_SCRIPTED=tally` and `PLAYER_SCRIPTED=hedge` field the two
 built-in baselines instead, which is also what every seat falls back to when a
 reply cannot be parsed or no LLM credentials exist.
 """
@@ -544,14 +542,6 @@ manifest = {
             "same image with a different PLAYER_PROMPT.",
         ),
         player_entry(
-            "tribunal-jev",
-            "Tribunal Jev Choices",
-            "Jev ranks legal evidence introductions, juror leans, and sealed "
-            "votes from each seat's private view. Arguments and whispers use "
-            "factual templates rather than generated prose.",
-            {"PLAYER_JEV": "1"},
-        ),
-        player_entry(
             "tribunal-tally",
             "Tribunal Tally Baseline",
             "The scripted truth-tracking baseline as a fieldable policy: as a "
@@ -600,7 +590,7 @@ manifest = {
             "player_connect_timeout_seconds": 180,
         },
         "players": [
-            {"player_id": "tribunal-jev"},
+            {"player_id": "tribunal-player"},
             {"player_id": "tribunal-tally"},
             {"player_id": "tribunal-player"},
             {"player_id": "tribunal-hedge"},

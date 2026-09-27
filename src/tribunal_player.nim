@@ -2,8 +2,7 @@
 ##
 ## Connects to the game, delivers its prompt (from PLAYER_PROMPT, or a default
 ## strategy covering both roles), then idles until the final frame. All of the
-## prompt decisions use the game's Claude adapter. PLAYER_JEV=1 ranks
-## bounded choices here; arguments and whispers use factual templates.
+## prompt decisions use the game's Claude adapter.
 ##
 ## PLAYER_SCRIPTED=tally (or 1) registers the seat as the built-in
 ## truth-tracking baseline instead; PLAYER_SCRIPTED=hedge as the
@@ -15,7 +14,6 @@
 
 import
   std/[json, options, os, strutils],
-  tribunal/jev_policy,
   whisky
 
 const DefaultPrompt = """
@@ -40,27 +38,19 @@ when isMainModule:
   let url = getEnv("COWORLD_PLAYER_WS_URL")
   if url.len == 0:
     quit("COWORLD_PLAYER_WS_URL is not set", 1)
-  let jevRequested = getEnv("PLAYER_JEV") == "1"
-  let jev = jevRequested and (
-    getEnv("AWS_ENDPOINT_URL_BEDROCK_RUNTIME").strip().len > 0 or
-    getEnv("METTA_CAPTURE_URL").strip().len > 0 or
-    getEnv("TYPESAFE_API_KEY").strip().len > 0)
   var prompt = getEnv("PLAYER_PROMPT")
-  if prompt.len == 0 and not jev:
+  if prompt.len == 0:
     prompt = DefaultPrompt
   let scripted = getEnv("PLAYER_SCRIPTED").strip()
 
   proc promptFrame(): string =
-    if jev: $ %*{"type": "register", "control": "external"}
-    else: $ %*{"type": "prompt", "prompt": prompt,
-      "scripted": (if jevRequested: "tally" else: scripted)}
+    $ %*{"type": "prompt", "prompt": prompt, "scripted": scripted}
 
   echo "tribunal player: connecting to game"
   let socket = newWebSocket(url)
   socket.send(promptFrame())
   echo "tribunal player: prompt delivered (", prompt.len, " chars",
-    (if scripted.len > 0: ", scripted " & scripted else: ""),
-    (if jev: ", Jev choices" else: ""), ")"
+    (if scripted.len > 0: ", scripted " & scripted else: ""), ")"
 
   ## whisky RAISES on a close frame or a truncated read (only a timeout
   ## returns none), and the game's quit(0) can outrun the flushed final
@@ -85,11 +75,6 @@ when isMainModule:
           ## Re-deliver the prompt after the welcome, in case the first send
           ## raced the server's slot registration.
           socket.send(promptFrame())
-        of "observation":
-          if jev:
-            let action = chooseAction(payload["observation"])
-            socket.send($ %*{"type": "action", "id": payload["id"],
-              "action": action})
         of "final":
           echo "tribunal player: final scores ", payload{"scores"},
             " verdict ", payload{"verdict"}
