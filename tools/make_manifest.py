@@ -309,10 +309,7 @@ manifest = {
             "type": "game",
             "image": IMAGE,
             "run": ["/bin/tribunal"],
-            "env": {
-                "ANTHROPIC_API_KEY_URI":
-                    "secret://coworld/tribunal/anthropic_api_key"
-            },
+            "env": {},
             "source_url": SOURCE,
         },
         "config_schema": {
