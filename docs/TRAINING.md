@@ -32,6 +32,20 @@ stable across seats, rounds, and retries; roles and identities remain specific
 to each seat. Operator guidance and private observations retain their original
 rendering. Deterministic comparisons do not establish improved learning stability.
 
+Set `TRIBUNAL_HOST_TRACE_PATH` and `TRIBUNAL_SOURCE_REVISION` to retain an
+exclusive, mode-600 native trace. It contains exact HTTP bodies, raw responses,
+status and response headers, rejected attempts, selection hashes, pre-turn private
+views, installed simulator actions, and final results. It is private evidence,
+not a replay attachment. A parsed proposal can differ from the installed action:
+invalid evidence IDs are dropped, text is capped, and empty notes retain prior notes.
+Selected attempt IDs join accepted requests to the authoritative action events.
+Scripted and fallback actions retain their own origins.
+
+`tools/test_native_prompts.py GAME PLAYER OUTPUT` plays a complete five-seat
+trial through the native HTTP path using a deterministic local fixture. Use
+`--mode retry` or `--mode fallback` for failed-attempt cases and `--wording`
+for prompt selection. Fixture traffic is not model-generated training evidence.
+
 ## Numeric reinforcement learning
 
 `tools/train_bridge.nim` exposes hosted prompts and 42 numeric values:

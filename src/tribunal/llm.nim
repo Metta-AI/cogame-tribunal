@@ -26,6 +26,7 @@ import
   bitworld/runtime,
   curly,
   prompts,
+  evidence,
   sim
 
 const
@@ -45,6 +46,8 @@ type
     tkVote     ## a juror in the sealed ballot
 
   Decision* = object
+    attempts*: seq[JsonNode]
+    selectedAttemptId*: string
     introduce*: seq[string]  ## advocate: card ids to introduce (0..2)
     argument*: string        ## advocate
     whisper*: string         ## juror, argument round
@@ -575,6 +578,13 @@ proc decisionJson*(sim: Sim, seat: int, decision: Decision): JsonNode =
   of tkVote:
     %*{"vote": decision.vote, "reason": decision.reason, "notes": decision.notes}
 
+proc actionFromEvent*(event: GameEvent): JsonNode =
+  case event.kind
+  of evArgue: %*{"introduce": event.cards, "argument": event.text, "notes": event.notes}
+  of evWhisper: %*{"whisper": event.text, "lean": event.lean, "notes": event.notes}
+  of evVote: %*{"vote": event.vote, "reason": event.text, "notes": event.notes}
+  else: raise newException(Defect, "expected an installed action event")
+
 # ---- The turn's batch -------------------------------------------------------
 
 proc decideAll*(
@@ -590,6 +600,8 @@ proc decideAll*(
   ## any failure falls back to the scripted baseline so the episode always
   ## advances. `prompts` and `scripted` are indexed by SEAT.
   result = newSeq[Decision](seats.len)
+  let capture = getEnv("TRIBUNAL_HOST_TRACE_PATH").len > 0
+  var attempts = newSeq[seq[JsonNode]](seats.len)
   var open: seq[int]     ## indexes into `seats` still undecided
   for index, seat in seats:
     let kind = scripted[seat]
@@ -613,20 +625,47 @@ proc decideAll*(
     var stillOpen: seq[int]
     for position, index in open:
       let seat = seats[index]
+      let attemptId = $sim.round & "-" & $sim.phase & "-" & $seat & "-" & $attempt
+      var text = ""
+      var failure = ""
+      var parsedAction = newJNull()
+      var accepted = false
       try:
-        let text = client.textOf(responses[position].response,
+        text = client.textOf(responses[position].response,
           responses[position].error, batch[position].url)
         let decision = sim.parseReply(seat, extractJsonObject(text))
         ## Reject illegal replies here so the retry carries the hint.
         var probe = sim
+        let eventIndex = probe.events.len
         probe.applyDecision(seat, decision, false)
         result[index] = decision
+        parsedAction = actionFromEvent(probe.events[eventIndex])
+        result[index].selectedAttemptId = attemptId
+        accepted = true
       except CatchableError as error:
         echo "tribunal llm: seat ", seat, " attempt ", attempt, " failed: ",
           error.msg
         stillOpen.add(index)
+        failure = error.msg
+      if capture:
+        let body = parseJson(batch[position].body)
+        let system = body["system"].getStr()
+        let user = body["messages"][0]["content"].getStr()
+        var headers = newJObject()
+        for header in responses[position].response.headers:
+          headers[header[0]] = %header[1]
+        attempts[index].add(%*{"attempt_id": attemptId,
+          "prompt": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+          "prompt_configuration": promptMetadata(selection, system, user),
+          "request": {"url": batch[position].url, "body": body},
+          "response": text, "raw_response": responses[position].response.body,
+          "response_headers": headers, "http_status": responses[position].response.code,
+          "transport_error": responses[position].error, "accepted": accepted,
+          "parsed_action": parsedAction, "failure": failure})
     open = stillOpen
   for index in open:
     let seat = seats[index]
     echo "tribunal llm: seat ", seat, " falling back to scripted decision"
     result[index] = scriptedAction(sim, seat, skTally)
+  if capture:
+    for index in 0 ..< result.len: result[index].attempts = attempts[index]

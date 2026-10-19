@@ -26,3 +26,10 @@ proc writePrivate*(destination, content: string) =
   defer: output.close()
   if output.writeBuffer(content.cstring, content.len) != content.len:
     raise newException(EvidenceError, "incomplete private evidence write")
+
+proc appendPrivate*(destination: string, record: JsonNode) =
+  let output = open(destination, fmAppend)
+  defer: output.close()
+  let content = $record & "\n"
+  if output.writeBuffer(content.cstring, content.len) != content.len:
+    raise newException(EvidenceError, "incomplete private evidence append")

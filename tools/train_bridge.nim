@@ -28,7 +28,7 @@ proc currentDecision(): JsonNode =
         "argument": {"type": "string", "maxLength": MaxArgumentLen}}
       of tkWhisper: %*{"whisper": {"type": "string", "maxLength": MaxWhisperLen},
         "lean": {"type": "string"}}
-      of tkVote: %*{"vote": {"type": "string", "enum": ["guilty", "not guilty"]},
+      of tkVote: %*{"vote": {"type": "string", "enum": ["guilty", "not_guilty"]},
         "reason": {"type": "string"}}
     properties["notes"] = %*{"type": "string"}
     schema = %*{"type": "object", "properties": properties}
@@ -112,9 +112,10 @@ proc step(command: JsonNode): JsonNode =
     let seat = seats[cursor]
     let decision = game.parseReply(seat, action)
     var probe = game
+    let eventIndex = probe.events.len
     probe.applyDecision(seat, decision, false)
     pending[seat] = decision
-    action = game.decisionJson(seat, decision)
+    action = actionFromEvent(probe.events[eventIndex])
   else:
     let choice = action["choice"].getInt()
     doAssert choice in 0 .. 1

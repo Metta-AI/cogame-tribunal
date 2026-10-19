@@ -53,8 +53,9 @@ when isMainModule:
         let completion = game.decisionJson(seat, decision)
         let accepted = game.parseReply(seat, completion)
         var probe = game
+        let eventIndex = probe.events.len
         probe.applyDecision(seat, accepted, true)
-        let executed = game.decisionJson(seat, accepted)
+        let executed = actionFromEvent(probe.events[eventIndex])
         doAssert executed == completion
         decisions[seat] = accepted
         let system = systemPrompt(game, seat, selection)

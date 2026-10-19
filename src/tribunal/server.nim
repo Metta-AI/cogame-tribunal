@@ -33,6 +33,7 @@ import
   mummy/routers,
   llm,
   prompts,
+  evidence,
   sim
 
 const
@@ -197,6 +198,10 @@ proc finishEpisode(runtimeConfig: RuntimeConfig) =
     state.broadcastLocked()
 
   sleep(500)
+  let trace = getEnv("TRIBUNAL_HOST_TRACE_PATH")
+  if trace.len > 0:
+    appendPrivate(trace, %*{"event_type": "episode_finished",
+      "source_revision": getEnv("TRIBUNAL_SOURCE_REVISION"), "results": results})
   echo "tribunal: writing results and replay"
   writeArtifact(
     runtimeConfig.resultsUri, $results, "application/json",
@@ -226,6 +231,11 @@ proc describe(sim: Sim, seat: int, decision: Decision): string =
 proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
   {.gcsafe.}:
     let config = state.config
+    let trace = getEnv("TRIBUNAL_HOST_TRACE_PATH")
+    if trace.len > 0:
+      writePrivate(trace, $(%*{"event_type": "episode_started",
+        "source_revision": getEnv("TRIBUNAL_SOURCE_REVISION"),
+        "prompt_configuration": selectionMetadata(state.selection)}) & "\n")
     let gameStart = epochTime()
     let deadline = gameStart + config.playerConnectTimeoutSeconds
 
@@ -346,6 +356,7 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
           if not decisionOf.hasKey(seat):
             continue
           let decision = decisionOf[seat]
+          let eventIndex = state.sim.events.len
           ## `decision.scripted` also catches a seat that was LLM-driven and
           ## fell back after its retry — the config-derived flags cannot see
           ## that, and the replay would call the fallback an LLM decision.
@@ -368,6 +379,23 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
               ## episode.
               echo "tribunal: scripted fallback also rejected (",
                 fallbackError.msg, "); skipping the seat"
+          if trace.len > 0:
+            doAssert state.sim.events.len > eventIndex, "no authoritative action event"
+            let applied = state.sim.events[eventIndex]
+            doAssert applied.seat == seat
+            let executed = actionFromEvent(applied)
+            let selected = if not applied.scripted and decision.selectedAttemptId.len > 0:
+              %decision.selectedAttemptId else: newJNull()
+            let origin = if external[seat] and not applied.scripted: "external"
+              elif scripted[seat] != skNone: "scripted-" & $scripted[seat]
+              elif selected.kind != JNull: "llm"
+              else: "scripted-tally-fallback"
+            appendPrivate(trace, %*{"event_type": "host_decision", "decision_id": decisionId,
+              "round": simCopy.round, "phase": $simCopy.phase, "seat": seat,
+              "observation": simCopy.playerStateJson(seat),
+              "prompt_configuration": selectionMetadata(selection),
+              "attempts": decision.attempts, "selected_attempt_id": selected,
+              "origin": origin, "executed_action": executed, "event": eventToJson(applied)})
         state.broadcastLocked()
 
       ## Pace between turns so spectators can read the courtroom.
