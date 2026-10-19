@@ -26,7 +26,6 @@ import
   bitworld/runtime,
   curly,
   prompts,
-  evidence,
   sim
 
 const
@@ -46,8 +45,6 @@ type
     tkVote     ## a juror in the sealed ballot
 
   Decision* = object
-    attempts*: seq[JsonNode]
-    selectedAttemptId*: string
     introduce*: seq[string]  ## advocate: card ids to introduce (0..2)
     argument*: string        ## advocate
     whisper*: string         ## juror, argument round
@@ -275,9 +272,75 @@ reply must begin with the character { and end with }."""
 proc systemPrompt*(sim: Sim, seat: int, selection: PromptSelection): string =
   let me = sim.names[seat]
   let role = sim.roleOf[seat]
+  if selection.selectedVariant != pvCanonical:
+    let heldout = selection.selectedVariant in {pvHeldoutBriefing, pvHeldoutReference}
+    var sections: array[4, string]
+    var identity: string
+    if role == 2:
+      identity = "You are " & me & ", JUROR " & $(sim.juryIndex[seat] + 1) & " of three."
+      sections[0] = if heldout:
+        "The two advocates can each reveal up to 2 evidence cards and deliver one argument per round. Their unrevealed hands stay hidden. You learn each side's total card count and how many it has disclosed."
+        else:
+          "Each round allows the prosecutor and defender to introduce up to 2 cards apiece and make one argument. Only introduced cards are visible to you; neither hand is visible. You know each side's held and shown counts."
+      sections[1] = if heldout:
+        "During every round, record your lean and optionally send the other two jurors a whisper of at most " & $MaxWhisperLen & " characters. They receive it next round. Advocates cannot read these whispers."
+        else:
+          "Record your current lean each round. You may also whisper at most " & $MaxWhisperLen & " characters to the OTHER TWO JURORS, who read it next round. No advocate receives a juror whisper."
+      sections[2] = if heldout:
+        "Once the last round ends, submit one sealed guilty or not-guilty vote. Until the verdict, nobody else sees your vote. Matching the actual truth earns +1.0; a wrong vote earns -1.0."
+        else:
+          "After the final round, cast exactly one sealed vote: guilty or not guilty. It remains hidden from every other seat until the verdict. Your own correct vote scores +1.0 and your own incorrect vote scores -1.0."
+      sections[2].add(" Agreeing with the other jurors scores you nothing. Being persuaded scores you nothing. Being RIGHT is the only thing that scores.")
+      sections[3] = "The evidence as a whole does point at the truth, but each side chooses what you get to see. Ask what a side is not showing you."
+    else:
+      let mine = if role == 0: "PROSECUTOR" else: "DEFENDER"
+      let want = if role == 0: "GUILTY" else: "NOT GUILTY"
+      let against = if role == 0: "acquittal" else: "conviction"
+      let other = if role == 0: "defender" else: "prosecutor"
+      identity = "You are " & me & ", the " & mine & "."
+      sections[0] = if heldout:
+        "Your private hand contains " & $sim.handOf(role).len & " cards. The jury sees only those you introduce; nobody sees cards you retain. In a round, reveal no more than " & $MaxIntroducePerTurn & " remaining cards and give one argument of at most " & $MaxArgumentLen & " characters."
+        else:
+          "You hold " & $sim.handOf(role).len & " evidence cards. You may introduce up to " & $MaxIntroducePerTurn & " remaining cards per round and give one argument, limited to " & $MaxArgumentLen & " characters. Only your introduced cards become visible to the jury. Cards you retain remain invisible to everybody else."
+      sections[1] = if heldout:
+        "The deal ignored which side a card supports, so your hand may contain evidence against your case. Disclosure is optional. The jury receives your held-card and shown-card counts and will draw its own conclusions."
+        else:
+          "Cards were dealt blind to their side. Your hand can include cards against your case, and you need not introduce those cards. Jurors know how many you hold and how many you have shown, and will draw their own conclusions."
+      sections[1].add(" You do NOT know whether the accused is guilty. Nobody in this room does.")
+      sections[2] = if heldout:
+        "Count the jurors voting " & want & ": three earns +1.0, two earns +0.33, one earns -0.33, and zero earns -1.0 (a 3-0 " & against & ")."
+        else:
+          "Your score depends only on votes for " & want & ": a 3-0 sweep pays +1.0, 2-1 pays +0.33, 1-2 pays -0.33, and a 3-0 " & against & " pays -1.0."
+      sections[2].add(" Truth does not score you. Winning does.")
+      sections[3] = if heldout:
+        "You and the " & other & " argue simultaneously. Its argument arrives next round rather than during your current decision. Jury deliberation stays private from you."
+        else:
+          "The " & other & " chooses its argument at the same time as you. You see that argument next round, never this round. You cannot see the jury's private deliberations."
+    let order = case selection.selectedVariant
+      of pvPlain: [0, 1, 2, 3]
+      of pvNumbered: [2, 0, 1, 3]
+      of pvQuestions: [0, 2, 3, 1]
+      of pvReordered: [3, 1, 0, 2]
+      of pvHeldoutBriefing: [2, 3, 0, 1]
+      of pvHeldoutReference: [1, 0, 3, 2]
+      else: raise newException(Defect, "expected resolved alternate wording")
+    let questions = if role == 2:
+      ["What evidence can you see?", "How can jurors communicate?", "How do voting and scoring work?", "How should you interpret the record?"]
+      else:
+        ["What can you introduce?", "What is private and what does the jury know?", "How are you scored?", "When can you see others' decisions?"]
+    result = identity & " Five cogs form this tribunal: a prosecutor, a defender, and three jurors. " & sim.charge
+    for index, section in order:
+      let heading = case selection.selectedVariant
+        of pvNumbered: $(index + 1) & ". "
+        of pvQuestions: questions[section] & "\n"
+        else: ""
+      result.add("\n\n" & heading & sections[section])
+    result.add("\n\nYour notes are private and fed back to you every round." & JsonOnlyClause)
+    return
   if role == 2:
-    return selection.roleIntroduction(me, "JUROR " & $(sim.juryIndex[seat] + 1) &
-      " of three") & sim.charge & """
+    return "You are " & me & ", JUROR " & $(sim.juryIndex[seat] + 1) &
+      " of three in a tribunal of five cogs: a prosecutor, a defender and a " &
+      "jury of three. " & sim.charge & """
 
 Rules:
 - Each round the prosecutor and the defender may introduce up to 2 evidence
@@ -300,7 +363,8 @@ Rules:
   let want = if role == 0: "GUILTY" else: "NOT GUILTY"
   let against = if role == 0: "acquittal" else: "conviction"
   let other = if role == 0: "defender" else: "prosecutor"
-  selection.roleIntroduction(me, "the " & mine) & sim.charge & """
+  "You are " & me & ", the " & mine & " in a tribunal of five cogs: a " &
+    "prosecutor, a defender and a jury of three. " & sim.charge & """
 
 Rules:
 - You hold """ & $sim.handOf(role).len & """ evidence cards. Only cards you INTRODUCE are ever
@@ -600,8 +664,6 @@ proc decideAll*(
   ## any failure falls back to the scripted baseline so the episode always
   ## advances. `prompts` and `scripted` are indexed by SEAT.
   result = newSeq[Decision](seats.len)
-  let capture = getEnv("TRIBUNAL_HOST_TRACE_PATH").len > 0
-  var attempts = newSeq[seq[JsonNode]](seats.len)
   var open: seq[int]     ## indexes into `seats` still undecided
   for index, seat in seats:
     let kind = scripted[seat]
@@ -625,47 +687,20 @@ proc decideAll*(
     var stillOpen: seq[int]
     for position, index in open:
       let seat = seats[index]
-      let attemptId = $sim.round & "-" & $sim.phase & "-" & $seat & "-" & $attempt
-      var text = ""
-      var failure = ""
-      var parsedAction = newJNull()
-      var accepted = false
       try:
-        text = client.textOf(responses[position].response,
+        let text = client.textOf(responses[position].response,
           responses[position].error, batch[position].url)
         let decision = sim.parseReply(seat, extractJsonObject(text))
         ## Reject illegal replies here so the retry carries the hint.
         var probe = sim
-        let eventIndex = probe.events.len
         probe.applyDecision(seat, decision, false)
         result[index] = decision
-        parsedAction = actionFromEvent(probe.events[eventIndex])
-        result[index].selectedAttemptId = attemptId
-        accepted = true
       except CatchableError as error:
         echo "tribunal llm: seat ", seat, " attempt ", attempt, " failed: ",
           error.msg
         stillOpen.add(index)
-        failure = error.msg
-      if capture:
-        let body = parseJson(batch[position].body)
-        let system = body["system"].getStr()
-        let user = body["messages"][0]["content"].getStr()
-        var headers = newJObject()
-        for header in responses[position].response.headers:
-          headers[header[0]] = %header[1]
-        attempts[index].add(%*{"attempt_id": attemptId,
-          "prompt": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-          "prompt_configuration": promptMetadata(selection, system, user),
-          "request": {"url": batch[position].url, "body": body},
-          "response": text, "raw_response": responses[position].response.body,
-          "response_headers": headers, "http_status": responses[position].response.code,
-          "transport_error": responses[position].error, "accepted": accepted,
-          "parsed_action": parsedAction, "failure": failure})
     open = stillOpen
   for index in open:
     let seat = seats[index]
     echo "tribunal llm: seat ", seat, " falling back to scripted decision"
     result[index] = scriptedAction(sim, seat, skTally)
-  if capture:
-    for index in 0 ..< result.len: result[index].attempts = attempts[index]

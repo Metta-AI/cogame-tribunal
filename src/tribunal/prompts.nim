@@ -1,5 +1,6 @@
 ## Game-owned wording selection. Kept outside simulation/replay configuration.
 import std/[json, strutils]
+import crunchy
 
 type
   PromptVariant* = enum
@@ -16,7 +17,7 @@ type
     seed*: int
 
 const
-  PromptBankVersion* = "tribunal-rules-v1"
+  PromptBankVersion* = "tribunal-rules-v2"
 
 proc promptSelection*(node: JsonNode): PromptSelection =
   if node.kind != JObject:
@@ -42,29 +43,7 @@ proc selectionMetadata*(selection: PromptSelection): JsonNode =
   %*{"bank": PromptBankVersion, "variant": $selection.selectedVariant,
     "selection": $selection.variant, "seed": selection.seed}
 
-proc roleIntroduction*(selection: PromptSelection, name, role: string): string =
-  case selection.selectedVariant
-  of pvCanonical:
-    "You are " & name & ", " & role & " in a tribunal of five cogs: a " &
-      "prosecutor, a defender and a jury of three. "
-  of pvPlain:
-    "Five cogs form this tribunal: a prosecutor, a defender and three jurors. " &
-      "You are " & name & ", " & role & ". "
-  of pvNumbered:
-    "Tribunal: five cogs. Roles: a prosecutor, a defender and a jury of three. " &
-      "Your identity: " & name & ". Your role: " & role & ". "
-  of pvQuestions:
-    "Who participates? Five cogs: a prosecutor, a defender and three jurors. " &
-      "Who are you? " & name & ", " & role & ". "
-  of pvReordered:
-    "A prosecutor and a defender appear before three jurors in this five-cog " &
-      "tribunal. Your cog is " & name & ", " & role & ". "
-  of pvHeldoutBriefing:
-    "Your briefing: this tribunal has five cogs, comprising a prosecutor, a " &
-      "defender and three jurors. You play " & name & ", " & role & ". "
-  of pvHeldoutReference:
-    "Tribunal roster: prosecutor, defender, three jurors (five cogs total). " &
-      "Your assignment: " & name & ", " & role & ". "
-  of pvMixed:
-    raise newException(Defect, "mixed selection must resolve to a wording")
-
+proc promptMetadata*(selection: PromptSelection, system, user: string): JsonNode =
+  result = selection.selectionMetadata()
+  result["system_sha256"] = %sha256(system).toHex
+  result["user_sha256"] = %sha256(user).toHex

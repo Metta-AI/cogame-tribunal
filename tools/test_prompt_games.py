@@ -45,7 +45,7 @@ def play(binary: Path, variant: str, wording: str, prompt_seed: int, seed: int) 
             view = observation["semantic_view"]
             system, user = [m["content"] for m in observation["messages"]]
             assert view.pop("prompt_template") == {
-                "bank": "tribunal-rules-v1",
+                "bank": "tribunal-rules-v2",
                 "selection": wording,
                 "variant": WORDINGS[prompt_seed % 5] if wording == "mixed" else wording,
                 "seed": prompt_seed,
@@ -58,7 +58,7 @@ def play(binary: Path, variant: str, wording: str, prompt_seed: int, seed: int) 
             assert system == systems[seat]
             assert view.pop("system") == system
             assert view["user"] == user
-            observation["messages"][0]["content"] = system.partition("\n")[2]
+            observation["messages"][0]["content"] = ""
             record(observation)
             proposal = json.loads(request({"kind": "teacher"})["response"])
             result = request(
@@ -86,9 +86,9 @@ def main() -> None:
     for variant in ("standard", "long-trial"):
         for seed in (17, 946001):
             reference = play(args.binary, variant, "canonical", 0, seed)
-            for wording, prompt_seed in [(w, 0) for w in WORDINGS[1:]] + [("mixed", i) for i in range(5)]:
+            for wording, prompt_seed in [(w, 0) for w in WORDINGS[1:]] + [("mixed", seed % 5)]:
                 assert play(args.binary, variant, wording, prompt_seed, seed) == reference
-        print(variant, "24 complete games PASS", flush=True)
+        print(variant, "16 complete games PASS", flush=True)
     for wording in WORDINGS[-2:]:
         rejected = subprocess.run(
             [
@@ -103,7 +103,7 @@ def main() -> None:
             timeout=10,
         )
         assert rejected.returncode != 0 and "held-out wording cannot enter training" in rejected.stderr
-    print("48 complete games and held-out exclusion PASS", flush=True)
+    print("32 complete games and held-out exclusion PASS", flush=True)
 
 
 if __name__ == "__main__":

@@ -1,50 +1,32 @@
-# Tribunal training
+# Tribunal prompt diversity and training
 
-The exporter plays ten complete native trials per certified variant. It
-records each seat's exact hosted system and user prompts, plus replies
-accepted by the production parser. Every decision in a round uses the
-same pre-turn state. The native simulator applies them in role order,
-including the sealed ballot. Commit the source before exporting.
+The v2 bank varies each role's evidence, communication, score, and privacy
+explanations. Five training presentations include canonical, plain, numbered,
+questions, and reordered. Two held-out presentations are evaluation-only.
+Canonical rules, operator guidance, strategic hints, and JSON syntax remain fixed.
+An independent nonnegative prompt seed chooses mixed wording once per episode.
+
+The exporter plays complete five-seat native trials with tally and hedge
+teachers. Every seat observes the same pre-turn state; decisions resolve only
+after the full batch. Outputs retain the original train.jsonl, validation.jsonl,
+and manifest.json contracts, adding selection, message hashes, and scenario
+families. Every fifth seed is validation. Mixed wording cycles independently
+within each split; both trial lengths share the same scenario family.
 
 ```sh
 nim c -d:release --path:src -o:/tmp/tribunal-posttrain tools/export_posttrain.nim
-/tmp/tribunal-posttrain /tmp/tribunal-data 10 standard
+/tmp/tribunal-posttrain /tmp/tribunal-data 10 standard mixed 0
 ```
 
-The other certified variant is `long-trial`. Outputs are private
-`trajectories.jsonl` and `manifest.json` files. They retain exact prompt hashes,
-teacher origin, installed actions, terminal outcomes for all five seats, and
-source revision. These are candidates requiring independent review before
-training admission. The shared Coworld importer owns splitting: all replicas
-of `tribunal-SEED`, including both trial lengths, belong to one split.
+Use standard or long-trial. Held-out wording cannot enter training exports.
+The native host accepts promptVariant and promptSeed. Both bridge modes accept
+the same settings and a train, validation, or test split. Training rejects
+held-out resets. Selection stays stable across seats, rounds, and retries;
+roles and identities remain seat-specific. Private observations are unchanged.
 
-The optional final arguments select `PROMPT_VARIANT` and `PROMPT_SEED`.
-Five training introductions (`canonical`, `plain`, `numbered`, `questions`,
-`reordered`) retain each role's complete rules and action instructions.
-`mixed` selects one using an explicit nonnegative prompt seed, independent
-of scenario randomness. `heldout-briefing` and `heldout-reference` are
-evaluation-only and cannot enter source exports. Canonical is the default.
-
-The ordinary host accepts `promptVariant` and `promptSeed` in its configuration.
-Both bridge modes accept them on reset, along with `split` (`train`,
-`validation`, or `test`). Training rejects held-out wording. Selection is
-stable across seats, rounds, and retries; roles and identities remain specific
-to each seat. Operator guidance and private observations retain their original
-rendering. Deterministic comparisons do not establish improved learning stability.
-
-Set `TRIBUNAL_HOST_TRACE_PATH` and `TRIBUNAL_SOURCE_REVISION` to retain an
-exclusive, mode-600 native trace. It contains exact HTTP bodies, raw responses,
-status and response headers, rejected attempts, selection hashes, pre-turn private
-views, installed simulator actions, and final results. It is private evidence,
-not a replay attachment. A parsed proposal can differ from the installed action:
-invalid evidence IDs are dropped, text is capped, and empty notes retain prior notes.
-Selected attempt IDs join accepted requests to the authoritative action events.
-Scripted and fallback actions retain their own origins.
-
-`tools/test_native_prompts.py GAME PLAYER OUTPUT` plays a complete five-seat
-trial through the native HTTP path using a deterministic local fixture. Use
-`--mode retry` or `--mode fallback` for failed-attempt cases and `--wording`
-for prompt selection. Fixture traffic is not model-generated training evidence.
+Complete-game comparisons establish mechanical invariants, not stronger play
+or less learning collapse. Learning studies must match policies, game seeds,
+seats, opponents, and inference settings and reserve held-out presentations.
 
 ## Numeric reinforcement learning
 

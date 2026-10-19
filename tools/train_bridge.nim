@@ -1,7 +1,7 @@
 ## JSONL numeric bridge over the native Tribunal simulator.
 
 import std/[hashes, json, os]
-import tribunal/[sim, llm, prompts, evidence]
+import tribunal/[sim, llm, prompts]
 
 var
   game: Sim
