@@ -1,7 +1,7 @@
 ## JSONL numeric bridge over the native Tribunal simulator.
 
 import std/[hashes, json, os]
-import tribunal/[sim, llm]
+import tribunal/[sim, llm, prompts, evidence]
 
 var
   game: Sim
@@ -9,27 +9,48 @@ var
   cursor: int
   decisionId: int
   choices: array[Seats, int]
+  pending: array[Seats, Decision]
+  textMode: bool
   manifestPath: string
   variant: string
+  selection: PromptSelection
 
 proc currentDecision(): JsonNode =
   let seat = seats[cursor]
-  let system = systemPrompt(game, seat)
+  let system = systemPrompt(game, seat, selection)
   let user = userPrompt(game, seat, "")
+  var schema = %*{"type": "object", "properties": {
+    "choice": {"type": "integer", "minimum": 0, "maximum": 1}},
+    "required": ["choice"]}
+  if textMode:
+    let properties = case game.turnKind(seat)
+      of tkArgue: %*{"introduce": {"type": "array", "items": {"type": "string"}, "maxItems": 2},
+        "argument": {"type": "string", "maxLength": MaxArgumentLen}}
+      of tkWhisper: %*{"whisper": {"type": "string", "maxLength": MaxWhisperLen},
+        "lean": {"type": "string"}}
+      of tkVote: %*{"vote": {"type": "string", "enum": ["guilty", "not guilty"]},
+        "reason": {"type": "string"}}
+    properties["notes"] = %*{"type": "string"}
+    schema = %*{"type": "object", "properties": properties}
   %*{"kind": "decision", "game": "tribunal",
     "decision_id": decisionId, "seat": seat, "engine_seat": seat,
     "turn": game.round,
-    "semantic_view": {"system": system, "user": user},
+    "semantic_view": {"system": system, "user": user,
+      "prompt_template": promptMetadata(selection, system, user)},
     "inbox": [], "messages": [
       {"role": "system", "content": system},
       {"role": "user", "content": user}],
     "speech_messages": [],
-    "action_schema": {"type": "object", "properties": {
-      "choice": {"type": "integer", "minimum": 0, "maximum": 1}},
-      "required": ["choice"]}, "typed_question": newJNull()}
+    "action_schema": schema, "typed_question": newJNull()}
 
 proc reset(command: JsonNode): JsonNode =
   doAssert command["players"].getInt() == Seats
+  selection = promptSelection(command)
+  let split = if command.hasKey("split"): command["split"].getStr() else: "train"
+  if split notin ["train", "validation", "test"]:
+    raise newException(ValueError, "unknown dataset split")
+  if split == "train" and selection.selectedVariant in {pvHeldoutBriefing, pvHeldoutReference}:
+    raise newException(ValueError, "held-out wording cannot enter training")
   let manifest = parseFile(manifestPath)
   var variantConfig = newJNull()
   for entry in manifest["variants"]:
@@ -45,6 +66,7 @@ proc reset(command: JsonNode): JsonNode =
   cursor = 0
   decisionId = 0
   choices = [0, 0, 0, 0, 0]
+  pending = default(array[Seats, Decision])
   currentDecision()
 
 proc encode(): JsonNode =
@@ -85,19 +107,27 @@ proc encode(): JsonNode =
 proc step(command: JsonNode): JsonNode =
   if command["decision_id"].getInt() != decisionId:
     return %*{"kind": "rejected", "reason": "stale decision"}
-  let action = parseJson(command["response"].getStr())
-  let choice = action["choice"].getInt()
-  doAssert choice in 0 .. 1
-  choices[seats[cursor]] = choice
+  var action = parseJson(command["response"].getStr())
+  if textMode:
+    let seat = seats[cursor]
+    let decision = game.parseReply(seat, action)
+    var probe = game
+    probe.applyDecision(seat, decision, false)
+    pending[seat] = decision
+    action = game.decisionJson(seat, decision)
+  else:
+    let choice = action["choice"].getInt()
+    doAssert choice in 0 .. 1
+    choices[seats[cursor]] = choice
   inc decisionId
   inc cursor
   if cursor == seats.len:
-    var decisions: array[Seats, Decision]
+    if not textMode:
+      for seat in seats:
+        let kind = if choices[seat] == 0: skTally else: skHedge
+        pending[seat] = scriptedAction(game, seat, kind)
     for seat in seats:
-      let kind = if choices[seat] == 0: skTally else: skHedge
-      decisions[seat] = scriptedAction(game, seat, kind)
-    for seat in seats:
-      game.applyDecision(seat, decisions[seat], true)
+      game.applyDecision(seat, pending[seat], not textMode)
     seats = game.orderedSeats()
     cursor = 0
   let observation = if game.done:
@@ -114,8 +144,11 @@ proc step(command: JsonNode): JsonNode =
 
 when isMainModule:
   let args = commandLineParams()
-  if args.len != 2:
-    quit("usage: tribunal-train-bridge MANIFEST VARIANT", 1)
+  if args.len notin [2, 3]:
+    quit("usage: tribunal-train-bridge MANIFEST VARIANT [text]", 1)
+  if args.len == 3:
+    doAssert args[2] == "text"
+    textMode = true
   manifestPath = absolutePath(args[0])
   variant = args[1]
   doAssert variant in ["standard", "long-trial"]
@@ -124,7 +157,11 @@ when isMainModule:
     let response = case command["kind"].getStr()
       of "reset": reset(command)
       of "encode": encode()
-      of "teacher": %*{"response": $(%*{"choice": 0})}
+      of "teacher":
+        let action = if textMode:
+          game.decisionJson(seats[cursor], scriptedAction(game, seats[cursor], skTally))
+        else: %*{"choice": 0}
+        %*{"response": $action}
       of "step": step(command)
       else: raise newException(ValueError, "unknown command")
     stdout.writeLine($response)

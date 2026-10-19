@@ -32,6 +32,7 @@ import
   mummy,
   mummy/routers,
   llm,
+  prompts,
   sim
 
 const
@@ -41,6 +42,7 @@ const
 type
   GameState = object
     config: GameConfig
+    selection: PromptSelection
     sim: Sim
     prompts: seq[string]
     scripted: seq[ScriptKind]
@@ -270,6 +272,7 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
       var scripted: seq[ScriptKind]
       var external: seq[bool]
       var decisionId: int
+      var selection: PromptSelection
       withLock stateLock:
         if state.sim.done:
           break
@@ -286,6 +289,7 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
           break
         seats = state.sim.pendingSeats()
         simCopy = state.sim
+        selection = state.selection
         prompts = state.prompts
         scripted = state.scripted
         external = state.external
@@ -312,7 +316,7 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
       for seat in seats:
         if external[seat]:
           modelKinds[seat] = skTally
-      var decisions = client.decideAll(simCopy, seats, prompts, modelKinds)
+      var decisions = client.decideAll(simCopy, seats, prompts, modelKinds, selection)
       let deadline = epochTime() + config.llmTimeoutSeconds.float
       while epochTime() < deadline:
         var ready = true
@@ -585,10 +589,11 @@ proc runReplayServer*(runtimeConfig: RuntimeConfig) =
   echo "tribunal: replay mode on ", runtimeConfig.host, ":", runtimeConfig.port
   gameServer.serve(Port(runtimeConfig.port), runtimeConfig.host)
 
-proc runGameServer*(config: GameConfig, runtimeConfig: RuntimeConfig) =
+proc runGameServer*(config: GameConfig, runtimeConfig: RuntimeConfig, selection: PromptSelection) =
   if config.tokens.len != config.players.len:
     raise newException(TribunalError, "tokens and players must align")
   state.config = config
+  state.selection = selection
   state.sim = initSim(config)
   state.prompts = newSeq[string](config.players.len)
   state.scripted = newSeq[ScriptKind](config.players.len)

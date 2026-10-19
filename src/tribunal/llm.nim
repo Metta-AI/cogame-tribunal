@@ -25,6 +25,7 @@ import
   std/[algorithm, json, os, strutils, unicode],
   bitworld/runtime,
   curly,
+  prompts,
   sim
 
 const
@@ -268,13 +269,12 @@ OUTPUT FORMAT: reply with ONLY one JSON object, nothing else - no analysis,
 no explanation, no markdown fences, no text before or after the object. Your
 reply must begin with the character { and end with }."""
 
-proc systemPrompt*(sim: Sim, seat: int): string =
+proc systemPrompt*(sim: Sim, seat: int, selection: PromptSelection): string =
   let me = sim.names[seat]
   let role = sim.roleOf[seat]
   if role == 2:
-    return "You are " & me & ", JUROR " & $(sim.juryIndex[seat] + 1) &
-      " of three in a tribunal of five cogs: a prosecutor, a defender and a " &
-      "jury of three. " & sim.charge & """
+    return selection.roleIntroduction(me, "JUROR " & $(sim.juryIndex[seat] + 1) &
+      " of three") & sim.charge & """
 
 Rules:
 - Each round the prosecutor and the defender may introduce up to 2 evidence
@@ -297,8 +297,7 @@ Rules:
   let want = if role == 0: "GUILTY" else: "NOT GUILTY"
   let against = if role == 0: "acquittal" else: "conviction"
   let other = if role == 0: "defender" else: "prosecutor"
-  "You are " & me & ", the " & mine & " in a tribunal of five cogs: a " &
-    "prosecutor, a defender and a jury of three. " & sim.charge & """
+  selection.roleIntroduction(me, "the " & mine) & sim.charge & """
 
 Rules:
 - You hold """ & $sim.handOf(role).len & """ evidence cards. Only cards you INTRODUCE are ever
@@ -566,6 +565,16 @@ proc applyDecision*(sim: var Sim, seat: int, decision: Decision,
     sim.applyVote(seat, decision.vote, decision.reason, decision.notes,
       scripted)
 
+proc decisionJson*(sim: Sim, seat: int, decision: Decision): JsonNode =
+  case sim.turnKind(seat)
+  of tkArgue:
+    %*{"introduce": decision.introduce, "argument": decision.argument,
+      "notes": decision.notes}
+  of tkWhisper:
+    %*{"whisper": decision.whisper, "lean": decision.lean, "notes": decision.notes}
+  of tkVote:
+    %*{"vote": decision.vote, "reason": decision.reason, "notes": decision.notes}
+
 # ---- The turn's batch -------------------------------------------------------
 
 proc decideAll*(
@@ -573,7 +582,8 @@ proc decideAll*(
   sim: Sim,
   seats: seq[int],
   prompts: seq[string],
-  scripted: seq[ScriptKind]
+  scripted: seq[ScriptKind],
+  selection: PromptSelection
 ): seq[Decision] =
   ## One decision per seat in `seats`, in order — the whole turn as ONE
   ## parallel batch, because the seats decide simultaneously. Never raises:
@@ -597,7 +607,7 @@ proc decideAll*(
       if attempt > 0:
         user.add("\nYour previous reply was invalid. Respond with ONLY the " &
           "requested JSON object.")
-      let request = client.requestFor(systemPrompt(sim, seat), user, seat)
+      let request = client.requestFor(systemPrompt(sim, seat, selection), user, seat)
       batch.post(request.url, request.headers, request.body, $index)
     let responses = client.curl.makeRequests(batch, client.timeoutSeconds)
     var stillOpen: seq[int]

@@ -5,6 +5,7 @@ import
   std/[json, sysrand],
   bitworld/runtime,
   tribunal/server,
+  tribunal/prompts,
   tribunal/sim
 
 proc randomSeed(): int =
@@ -42,4 +43,6 @@ when isMainModule:
     config = sampleEpisode(config)
     echo "tribunal: seats=", config.players.len,
       " rounds=", config.rounds
-    runGameServer(config, runtimeConfig)
+    let selection = promptSelection(if runtimeConfig.config.len == 0:
+      newJObject() else: parseJson(runtimeConfig.config))
+    runGameServer(config, runtimeConfig, selection)

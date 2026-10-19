@@ -5,7 +5,7 @@
 ## the jury half of the benchmark is noise, above the ceiling it is trivial.
 
 import std/[json, monotimes, sets, strutils, times, unicode, unittest]
-import tribunal/[llm, sim]
+import tribunal/[llm, sim, prompts]
 
 proc fixture(seed: int, rounds = 4): GameConfig =
   result = defaultGameConfig()
@@ -114,7 +114,7 @@ suite "scripted baselines":
     check seats.len == Seats
     let decisions = client.decideAll(sim, seats,
       @["be bold", "", "", "", ""],
-      @[skNone, skNone, skHedge, skNone, skNone])
+      @[skNone, skNone, skHedge, skNone, skNone], PromptSelection())
     check decisions.len == Seats
     ## Every decision comes from the SAME snapshot — the turn is simultaneous
     ## — so the expectations are all computed before anything is applied.
