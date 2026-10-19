@@ -130,7 +130,8 @@ def main() -> None:
             processes.append(
                 subprocess.Popen([str(args.player.resolve())], cwd=root, env=player_env, stdout=log, stderr=log)
             )
-        assert game.wait(timeout=manifest["episode_timeout_minutes"] * 60 + 30) == 0
+        timeout = manifest["game"]["config_schema"]["properties"]["episodeTimeoutSeconds"]["default"]
+        assert game.wait(timeout=timeout + 30) == 0
         for player in processes[1:]:
             assert player.wait(timeout=20) == 0
         result = json.loads((output / "results.json").read_text())
