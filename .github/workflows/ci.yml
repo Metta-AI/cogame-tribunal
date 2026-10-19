@@ -159,6 +159,15 @@ jobs:
             /tmp/tribunal-train-bridge
           python3 tools/test_prompt_games.py /tmp/tribunal-train-bridge
 
+      - name: Exercise native prompt attempts and installed actions
+        run: |
+          nim c --hints:off -d:release --parallelBuild:1 --path:src -o:/tmp/tribunal src/tribunal.nim
+          nim c --hints:off -d:release --parallelBuild:1 --path:src -o:/tmp/tribunal-player src/tribunal_player.nim
+          for mode in accepted retry fallback; do
+            python3 tools/test_native_prompts.py /tmp/tribunal /tmp/tribunal-player \
+              "$RUNNER_TEMP/tribunal-native-$mode" --wording mixed --mode "$mode"
+          done
+
   # ---------------------------------------------------------------------
   # Packaging smoke: the production image builds, and one real episode runs
   # end to end in raw docker with the certification fixture's seat mix.
