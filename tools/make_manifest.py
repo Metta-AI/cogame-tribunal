@@ -357,6 +357,18 @@ manifest = {
                         "for a fresh random seed per episode.",
                     "type": "integer",
                 },
+                "promptVariant": {
+                    "description": "Episode-stable rules wording; canonical preserves the original prompt.",
+                    "type": "string",
+                    "enum": ["canonical", "plain", "numbered", "questions", "reordered",
+                             "heldout-briefing", "heldout-reference", "mixed"],
+                    "default": "canonical",
+                },
+                "promptSeed": {
+                    "description": "Independent nonnegative wording seed; required for mixed selection.",
+                    "type": "integer",
+                    "minimum": 0,
+                },
                 "rounds": {
                     "description":
                         "Argument rounds before the sealed ballot.",

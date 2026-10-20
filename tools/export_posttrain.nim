@@ -1,27 +1,22 @@
 ## Complete native trials with exact hosted prompts and parsed replies.
 
 import std/[json, os, osproc, strutils]
-import tribunal/[sim, llm]
-
-proc reply(game: Sim, seat: int, decision: Decision): JsonNode =
-  case game.turnKind(seat)
-  of tkArgue:
-    %*{"introduce": decision.introduce, "argument": decision.argument,
-      "notes": decision.notes}
-  of tkWhisper:
-    %*{"whisper": decision.whisper, "lean": decision.lean,
-      "notes": decision.notes}
-  of tkVote:
-    %*{"vote": decision.vote, "reason": decision.reason,
-      "notes": decision.notes}
+import tribunal/[sim, llm, prompts]
 
 when isMainModule:
   let args = commandLineParams()
-  if args.len != 3:
-    quit("usage: tribunal-posttrain OUTPUT EPISODES VARIANT", 1)
+  if args.len notin 3 .. 5:
+    quit("usage: tribunal-posttrain OUTPUT EPISODES VARIANT [PROMPT_VARIANT] [PROMPT_SEED]", 1)
   let output = args[0]
   let episodes = parseInt(args[1])
   let variant = args[2]
+  var promptConfig = newJObject()
+  if args.len >= 4: promptConfig["promptVariant"] = %args[3]
+  if args.len == 5: promptConfig["promptSeed"] = %parseInt(args[4])
+  let configured = promptSelection(promptConfig)
+  if configured.selectedVariant in {pvHeldoutBriefing, pvHeldoutReference}:
+    quit("held-out wording cannot enter training sources", 1)
+  var wordingCounts: array[2, int]
   if episodes < 10: quit("at least ten games are required", 1)
   if dirExists(output) or fileExists(output):
     quit("output already exists: " & output, 1)
@@ -38,6 +33,10 @@ when isMainModule:
     validationRows: seq[string]
     runs = newJArray()
   for seed in 1 .. episodes:
+    var selection = configured
+    let splitIndex = ord(seed mod 5 == 0)
+    if selection.variant == pvMixed: selection.seed += wordingCounts[splitIndex]
+    inc wordingCounts[splitIndex]
     variantConfig["seed"] = %seed
     var config = defaultGameConfig()
     config.update($variantConfig)
@@ -51,19 +50,24 @@ when isMainModule:
         let kind = if (seed + game.round + seat) mod 2 == 0:
           skTally else: skHedge
         let decision = scriptedAction(game, seat, kind)
-        let completion = reply(game, seat, decision)
+        let completion = decisionJson(game, seat, decision)
         let accepted = game.parseReply(seat, completion)
         doAssert accepted.introduce == decision.introduce
         doAssert accepted.argument == decision.argument
         doAssert accepted.vote == decision.vote
         decisions[seat] = accepted
+        let system = systemPrompt(game, seat, selection)
+        let user = userPrompt(game, seat, "")
         rows.add($(%*{
-          "episode_id": "tribunal-" & variant & "-" & $seed,
+          "episode_id": "tribunal-" & variant & "-" & $seed & "-" &
+            $selection.variant & "-" & $selection.selectedVariant & "-" & $selection.seed,
           "seed": "tribunal-" & variant & "-" & $seed,
+          "scenario_family": "tribunal-" & $seed,
+          "prompt_template": promptMetadata(selection, system, user),
           "decision_id": rows.len,
           "prompt": [
-            {"role": "system", "content": systemPrompt(game, seat)},
-            {"role": "user", "content": userPrompt(game, seat, "")}
+            {"role": "system", "content": system},
+            {"role": "user", "content": user}
           ],
           "completion": [{"role": "assistant", "content": $completion}],
           "game": "tribunal",

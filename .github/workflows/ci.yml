@@ -157,6 +157,7 @@ jobs:
             -o:/tmp/tribunal-train-bridge tools/train_bridge.nim
           python3 tools/test_training.py /tmp/tribunal-posttrain \
             /tmp/tribunal-train-bridge
+          python3 tools/test_prompt_games.py /tmp/tribunal-train-bridge
 
   # ---------------------------------------------------------------------
   # Packaging smoke: the production image builds, and one real episode runs

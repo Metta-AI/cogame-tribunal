@@ -1,29 +1,34 @@
-# Tribunal training
+# Tribunal prompt diversity and training
 
-The exporter plays ten complete native trials per certified variant. It
-records each seat's exact hosted system and user prompts, plus replies
-accepted by the production parser. Every decision in a round uses the
-same pre-turn state. The native simulator applies them in role order,
-including the sealed ballot. Train and validation sets split full trials
-by seed.
+The v3 bank independently paraphrases each role's evidence, communication, score, and privacy
+explanations. Five training presentations include canonical, plain, numbered,
+questions, and reordered. Two held-out presentations are evaluation-only.
+Canonical rules, operator guidance, strategic hints, and JSON syntax remain fixed.
+An independent nonnegative prompt seed chooses mixed wording once per episode.
+
+The exporter plays complete five-seat native trials with tally and hedge
+teachers. Every seat observes the same pre-turn state; decisions resolve only
+after the full batch. Outputs retain the original train.jsonl, validation.jsonl,
+and manifest.json contracts, adding selection, message hashes, and scenario
+families. Every fifth seed is validation. Mixed wording cycles independently
+within each split; both trial lengths share the same scenario family.
+Episode IDs include requested selection, resolved wording, and prompt seed so matched exports
+remain distinct without changing scenario grouping.
 
 ```sh
 nim c -d:release --path:src -o:/tmp/tribunal-posttrain tools/export_posttrain.nim
-/tmp/tribunal-posttrain /tmp/tribunal-data 10 standard
+/tmp/tribunal-posttrain /tmp/tribunal-data 10 standard mixed 0
 ```
 
-The other certified variant is `long-trial`. The output has
-`train.jsonl`, `validation.jsonl`, and a manifest with source revision,
-seeds, rounds, scores, and row counts. Ten trials yielded 184/46
-standard and 224/56 long-trial train/validation decisions.
+Use standard or long-trial. Held-out wording cannot enter training exports.
+The native host accepts promptVariant and promptSeed. Both bridge modes accept
+the same settings and a train, validation, or test split. Training rejects
+held-out resets. Selection stays stable across seats, rounds, and retries;
+roles and identities remain seat-specific. Private observations are unchanged.
 
-From a Metta checkout with the post-training package installed:
-
-```sh
-uv run --package metta-posttrain --extra train python -m metta_posttrain.train \
-  --dataset /tmp/tribunal-data --output /tmp/tribunal-adapter \
-  --model Qwen/Qwen3-0.6B --max-steps 100 --max-length 4096
-```
+Complete-game comparisons establish mechanical invariants, not stronger play
+or less learning collapse. Learning studies must match policies, game seeds,
+seats, opponents, and inference settings and reserve held-out presentations.
 
 ## Numeric reinforcement learning
 
@@ -35,9 +40,16 @@ policy. Terminal utilities are the game's own bounded [-1, 1] scores.
 Post-training above retains arbitrary legal arguments, whispers, votes,
 and notes.
 
+Append `text` to the bridge command to submit those role-specific actions
+directly. The production parser normalizes them, and the simulator validates
+them before buffering. The round advances only after all pending seats submit.
+Malformed actions terminate this local bridge; the ordinary native host retains
+its existing retry and fallback behavior.
+
 ```sh
 nim c -d:release --path:src -o:/tmp/tribunal-train-bridge tools/train_bridge.nim
 python3 tools/test_training.py /tmp/tribunal-posttrain /tmp/tribunal-train-bridge
+python3 tools/test_prompt_games.py /tmp/tribunal-train-bridge
 ```
 
 From a Metta checkout with the Coworld training stack, pass absolute

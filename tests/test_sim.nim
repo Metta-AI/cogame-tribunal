@@ -4,7 +4,7 @@
 ## viewer and the scripted bots drive.
 
 import std/[json, sets, strutils, unicode, unittest]
-import tribunal/[llm, sim]
+import tribunal/[llm, sim, prompts]
 
 proc fixtureConfig(rounds = 4, seed = 0): GameConfig =
   result = defaultGameConfig()
@@ -249,7 +249,7 @@ suite "sealing":
     sim.applyVote(sim.jurorSeat[0], "guilty", "record says so", "", true)
     for seat in 0 ..< Seats:
       let text = sim.userPrompt(seat, "operator guidance") &
-        sim.systemPrompt(seat)
+        sim.systemPrompt(seat, PromptSelection())
       check sim.revealLine() notin text
       check "culprit" notin text.toLowerAscii()
       check "record says so" notin text
