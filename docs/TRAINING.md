@@ -1,6 +1,6 @@
 # Tribunal prompt diversity and training
 
-The v2 bank varies each role's evidence, communication, score, and privacy
+The v3 bank independently paraphrases each role's evidence, communication, score, and privacy
 explanations. Five training presentations include canonical, plain, numbered,
 questions, and reordered. Two held-out presentations are evaluation-only.
 Canonical rules, operator guidance, strategic hints, and JSON syntax remain fixed.
@@ -12,6 +12,8 @@ after the full batch. Outputs retain the original train.jsonl, validation.jsonl,
 and manifest.json contracts, adding selection, message hashes, and scenario
 families. Every fifth seed is validation. Mixed wording cycles independently
 within each split; both trial lengths share the same scenario family.
+Episode IDs include the selected wording and prompt seed so matched exports
+remain distinct without changing scenario grouping.
 
 ```sh
 nim c -d:release --path:src -o:/tmp/tribunal-posttrain tools/export_posttrain.nim

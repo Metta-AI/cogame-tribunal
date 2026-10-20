@@ -59,7 +59,8 @@ when isMainModule:
         let system = systemPrompt(game, seat, selection)
         let user = userPrompt(game, seat, "")
         rows.add($(%*{
-          "episode_id": "tribunal-" & variant & "-" & $seed,
+          "episode_id": "tribunal-" & variant & "-" & $seed & "-" &
+            $selection.selectedVariant & "-" & $selection.seed,
           "seed": "tribunal-" & variant & "-" & $seed,
           "scenario_family": "tribunal-" & $seed,
           "prompt_template": promptMetadata(selection, system, user),
