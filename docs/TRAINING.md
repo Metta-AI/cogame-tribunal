@@ -12,7 +12,7 @@ after the full batch. Outputs retain the original train.jsonl, validation.jsonl,
 and manifest.json contracts, adding selection, message hashes, and scenario
 families. Every fifth seed is validation. Mixed wording cycles independently
 within each split; both trial lengths share the same scenario family.
-Episode IDs include the selected wording and prompt seed so matched exports
+Episode IDs include requested selection, resolved wording, and prompt seed so matched exports
 remain distinct without changing scenario grouping.
 
 ```sh
